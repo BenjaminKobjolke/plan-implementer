@@ -1,0 +1,24 @@
+.venv/
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+.uv-cache/
+__pycache__/
+*.py[cod]
+dist/
+build/
+*.egg-info/
+
+# Local machine configuration (settings.example.json is the committed template)
+settings.json
+
+# Temporary Git commit message
+tmp/commit_msg.tmp
+
+# Claude working files
+.claude/
+claude-plans
+/PLAN_*.md
+PLAN.md
+HANDOFF.md
