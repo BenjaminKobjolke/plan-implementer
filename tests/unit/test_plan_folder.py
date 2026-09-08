@@ -1,5 +1,6 @@
 """Unit tests for plan folder resolution and bookkeeping."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -209,3 +210,132 @@ def test_resolve_all_without_any_plan_folder_is_configuration_error(tmp_path: Pa
 def test_resolve_all_requires_an_existing_folder(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError, match="does not exist"):
         plan_folder.resolve_all(tmp_path / "nope")
+
+
+def _folder_in_state(root: Path, state: str, feature: str = "demo") -> Path:
+    """A plan folder sitting in `plan/<state>/`, as an interrupted or failed run leaves it."""
+    source = make_plan_repo(root, feature=feature)
+    destination = root / "plan" / state / feature
+    destination.parent.mkdir(exist_ok=True)
+    shutil.move(str(source), str(destination))
+    return destination
+
+
+@pytest.mark.parametrize("state", ["", "implementing", "errors", "done"])
+def test_plan_parent_sees_through_a_state_directory(tmp_path: Path, state: str) -> None:
+    path = make_plan_repo(tmp_path) if not state else _folder_in_state(tmp_path, state)
+    folder = plan_folder.resolve(path)
+
+    assert plan_folder.plan_parent(folder) == tmp_path / "plan"
+    assert folder.repo_root == tmp_path
+
+
+def test_claim_moves_the_folder_into_implementing(plan_repo: Path) -> None:
+    folder = plan_folder.resolve(plan_repo / "plan" / "demo")
+
+    claimed = plan_folder.claim(folder)
+
+    assert claimed.path == plan_repo / "plan" / "implementing" / "demo"
+    assert claimed.context_path == claimed.path / "00-context.md"
+    assert claimed.repo_root == plan_repo
+    assert (claimed.path / "01-step-1.md").exists()
+    assert not (plan_repo / "plan" / "demo").exists()
+
+
+def test_claim_refuses_a_folder_another_run_holds(plan_repo: Path) -> None:
+    folder = plan_folder.resolve(plan_repo / "plan" / "demo")
+    (plan_repo / "plan" / "implementing" / "demo").mkdir(parents=True)
+
+    with pytest.raises(OperationalError, match="not overwriting"):
+        plan_folder.claim(folder)
+
+
+def test_claim_adopts_a_folder_already_in_implementing(tmp_path: Path) -> None:
+    path = _folder_in_state(tmp_path, "implementing")
+    folder = plan_folder.resolve(path)
+
+    claimed = plan_folder.claim(folder)
+
+    assert claimed.path == path
+    assert (path / "01-step-1.md").exists()
+
+
+def test_claim_from_errors_moves_to_implementing(tmp_path: Path) -> None:
+    folder = plan_folder.resolve(_folder_in_state(tmp_path, "errors"))
+
+    claimed = plan_folder.claim(folder)
+
+    assert claimed.path == tmp_path / "plan" / "implementing" / "demo"
+    assert not (tmp_path / "plan" / "errors" / "implementing").exists()
+
+
+def test_done_root_and_mark_done_ignore_the_implementing_level(plan_repo: Path) -> None:
+    claimed = plan_folder.claim(plan_folder.resolve(plan_repo / "plan" / "demo"))
+
+    assert plan_folder.done_root(claimed) == plan_repo / "plan" / "done" / "demo"
+
+    moved = plan_folder.mark_done(claimed, plan_folder.phases(claimed)[0])
+
+    assert moved == plan_repo / "plan" / "done" / "demo" / "01-step-1.md"
+
+
+@pytest.mark.parametrize(
+    ("failed", "expected"), [(False, ("plan", "demo")), (True, ("plan", "errors", "demo"))]
+)
+def test_release_moves_the_folder_to_its_state_directory(
+    plan_repo: Path, failed: bool, expected: tuple[str, ...]
+) -> None:
+    claimed = plan_folder.claim(plan_folder.resolve(plan_repo / "plan" / "demo"))
+    (claimed.path / "ERROR.md").write_text("x", encoding="utf-8")
+
+    released = plan_folder.release(claimed, failed=failed)
+
+    assert released.path == plan_repo.joinpath(*expected)
+    assert released.context_path == released.path / "00-context.md"
+    assert (released.path / "01-step-1.md").exists()
+    assert (released.path / "ERROR.md").exists()
+    assert not (plan_repo / "plan" / "implementing").exists()
+
+
+def test_release_after_archive_only_drops_the_implementing_dir(plan_repo: Path) -> None:
+    claimed = plan_folder.claim(plan_folder.resolve(plan_repo / "plan" / "demo"))
+    for phase in plan_folder.phases(claimed):
+        plan_folder.mark_done(claimed, phase)
+    plan_folder.archive(claimed)
+
+    plan_folder.release(claimed, failed=False)
+
+    assert not (plan_repo / "plan" / "implementing").exists()
+    assert not (plan_repo / "plan" / "demo").exists()
+    assert (plan_repo / "plan" / "done" / "demo" / "00-context.md").exists()
+
+
+def test_release_keeps_implementing_while_another_folder_is_claimed(tmp_path: Path) -> None:
+    make_plan_repo(tmp_path, feature="first")
+    make_plan_repo(tmp_path, feature="second")
+    first = plan_folder.claim(plan_folder.resolve(tmp_path / "plan" / "first"))
+    plan_folder.claim(plan_folder.resolve(tmp_path / "plan" / "second"))
+
+    plan_folder.release(first, failed=False)
+
+    assert (tmp_path / "plan" / "implementing" / "second").is_dir()
+    assert (tmp_path / "plan" / "first").is_dir()
+
+
+def test_release_is_a_no_op_for_an_unclaimed_folder(plan_repo: Path) -> None:
+    folder = plan_folder.resolve(plan_repo / "plan" / "demo")
+
+    released = plan_folder.release(folder, failed=True)
+
+    assert released.path == folder.path
+    assert not (plan_repo / "plan" / "errors").exists()
+
+
+def test_resolve_all_skips_claimed_and_parked_folders(tmp_path: Path) -> None:
+    make_plan_repo(tmp_path)
+    _folder_in_state(tmp_path, "implementing", feature="running")
+    _folder_in_state(tmp_path, "errors", feature="broken")
+
+    folders = plan_folder.resolve_all(tmp_path / "plan")
+
+    assert [folder.feature_name for folder in folders] == ["demo"]

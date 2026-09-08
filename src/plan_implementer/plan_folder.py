@@ -1,14 +1,19 @@
-"""Resolve a multi-step plan folder and keep its `done/` bookkeeping."""
+"""Resolve a multi-step plan folder and keep its state and `done/` bookkeeping."""
 
 import shutil
+from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 
 from plan_implementer.constants import (
     CONTEXT_FILE_NAME,
     DONE_DIR_NAME,
+    ERRORS_DIR_NAME,
     GIT_DIR_NAME,
+    IMPLEMENTING_DIR_NAME,
     PHASE_FILE_PATTERN,
     PLAN_DIR_NAME,
+    STATE_DIR_NAMES,
     WORKFLOW_ARTIFACT_SUFFIXES,
 )
 from plan_implementer.errors import ConfigurationError, OperationalError
@@ -74,9 +79,14 @@ def phases(folder: PlanFolder, only: str | None = None) -> list[Phase]:
     return selected
 
 
+def plan_parent(folder: PlanFolder) -> Path:
+    """The `plan/` dir this folder belongs to, seeing through a state-directory level."""
+    return _plan_dir(folder.path)
+
+
 def done_root(folder: PlanFolder) -> Path:
     """`plan/done/<folder-name>/` — where finished phases of this plan live."""
-    return folder.path.parent / DONE_DIR_NAME / folder.feature_name
+    return plan_parent(folder) / DONE_DIR_NAME / folder.feature_name
 
 
 def mark_done(folder: PlanFolder, phase: Phase) -> Path:
@@ -85,10 +95,7 @@ def mark_done(folder: PlanFolder, phase: Phase) -> Path:
     destination_dir.mkdir(parents=True, exist_ok=True)
 
     for source in (phase.path, *_sidecars(folder, phase)):
-        destination = destination_dir / source.name
-        if destination.exists():
-            raise OperationalError(f"Destination already exists, not overwriting: {destination}")
-        shutil.move(str(source), str(destination))
+        _move_path(source, destination_dir / source.name)
 
     return destination_dir / phase.name
 
@@ -116,16 +123,54 @@ def archive(folder: PlanFolder) -> Path | None:
     for leftover in sorted(folder.path.iterdir()):
         if not leftover.is_file():
             continue
-        destination = destination_dir / leftover.name
-        if destination.exists():
-            raise OperationalError(f"Destination already exists, not overwriting: {destination}")
-        shutil.move(str(leftover), str(destination))
+        _move_path(leftover, destination_dir / leftover.name)
 
     # Anything left is not ours to delete (nested folders, tooling output) — keep it.
     if not any(folder.path.iterdir()):
         folder.path.rmdir()
 
     return destination_dir
+
+
+def claim(folder: PlanFolder) -> PlanFolder:
+    """Move the folder into `implementing/`, where a concurrent run cannot see it.
+
+    `resolve_all` only looks at immediate subfolders for a context file, so a folder one level
+    deeper is skipped — the same reason `done/` needs no special case.
+    """
+    if folder.path.parent.name == IMPLEMENTING_DIR_NAME:
+        return folder  # already there: an interrupted run's leftover, pointed at directly
+    return _move(folder, plan_parent(folder) / IMPLEMENTING_DIR_NAME / folder.feature_name)
+
+
+def release(folder: PlanFolder, failed: bool) -> PlanFolder:
+    """Park a failed plan in `errors/`, put any other one back next to the waiting plans."""
+    holding_dir = folder.path.parent
+    if holding_dir.name != IMPLEMENTING_DIR_NAME:
+        return folder
+
+    parent = holding_dir.parent
+    destination = (parent / ERRORS_DIR_NAME if failed else parent) / folder.feature_name
+    # Nothing to move when the run archived the folder away.
+    released = _move(folder, destination) if folder.path.is_dir() else folder
+    with suppress(OSError):  # not empty: another run still holds a folder in there
+        holding_dir.rmdir()
+    return released
+
+
+def _move(folder: PlanFolder, destination: Path) -> PlanFolder:
+    """Relocate the whole plan folder and repoint it; `repo_root` is unaffected by the move."""
+    _move_path(folder.path, destination)
+    return replace(folder, path=destination, context_path=destination / CONTEXT_FILE_NAME)
+
+
+def _move_path(source: Path, destination: Path) -> Path:
+    """The one move in this module: never overwrite, and create the parent on the way."""
+    if destination.exists():
+        raise OperationalError(f"Destination already exists, not overwriting: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source), str(destination))
+    return destination
 
 
 def relative_to_repo(path: Path, repo_root: Path) -> str:
@@ -136,10 +181,17 @@ def relative_to_repo(path: Path, repo_root: Path) -> str:
         return path.as_posix()
 
 
+def _plan_dir(folder: Path) -> Path:
+    """The `plan/` dir owning this folder — one level up, or two through a state directory."""
+    parent = folder.parent
+    return parent.parent if parent.name in STATE_DIR_NAMES else parent
+
+
 def _find_repo_root(folder: Path) -> Path:
     """`<repo>/plan/<feature>` by convention, otherwise the nearest `.git` ancestor."""
-    if folder.parent.name == PLAN_DIR_NAME:
-        return folder.parent.parent
+    plan_dir = _plan_dir(folder)
+    if plan_dir.name == PLAN_DIR_NAME:
+        return plan_dir.parent
 
     for candidate in folder.parents:
         if (candidate / GIT_DIR_NAME).exists():

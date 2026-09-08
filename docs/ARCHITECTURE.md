@@ -22,6 +22,10 @@ the contract below. **When they change, this tool has to follow** — that alrea
   01-<kebab>.md      phase 1, ending in a "## Verify" section
   02-<kebab>.md      …
   ERROR.md           written by a failed run, overwritten by the next one
+<repo>/plan/implementing/YYYYMMDD_<feature-name>/
+                     the folder a run currently holds; invisible to another run
+<repo>/plan/errors/YYYYMMDD_<feature-name>/
+                     where a failed run parks the folder, ERROR.md included
 <repo>/plan/done/YYYYMMDD_<feature-name>/
                      finished phase files, then 00-context.md at the end
   REPORT.md          one "## Run N" section per run: times, sessions, tokens, cost
@@ -37,6 +41,9 @@ the contract below. **When they change, this tool has to follow** — that alrea
 | A finished phase and its `<stem>-*` sidecars (reports, delegate logs) move to `<repo>/plan/done/<folder-name>/` | `plan_folder.done_root`, `mark_done` |
 | An existing destination is never overwritten | `mark_done`, `archive` |
 | When no phase remains, the leftovers follow and the emptied folder is removed | `plan_folder.archive` |
+| A folder being implemented lives in `plan/implementing/<folder-name>/`, so `resolve_all` cannot hand it to a concurrent run | `plan_folder.claim`, `release` |
+| A run ends by archiving the folder, parking it in `plan/errors/<folder-name>/` after a failed phase, or putting it back — including after Ctrl-C | `plan_folder.release` |
+| `implementing/`, `errors/` and `done/` are states, not locations: the owning `plan/` dir is one level further up | `constants.STATE_DIR_NAMES`, `plan_folder.plan_parent` |
 | Every run appends itself to `REPORT.md`; a failed run also writes `ERROR.md` | `run_report.write` |
 | A successful run clears the `ERROR.md` an earlier failed run left behind | `run_report.write` |
 
@@ -61,7 +68,10 @@ cli.main
   Settings.load                   settings.json + environment overrides
   plan_folder.resolve_all         one plan folder, or every plan subfolder of a plan/ parent
   project_detect.load_config      the stack table, read once for the whole run
+  _log_parked                   name what implementing/ and errors/ hold, so nothing is silently skipped
   for each plan folder:
+    plan_folder.claim             move to plan/implementing/ (not under --dry-run) — before phases,
+                                  or every Phase.path would point at the old location
     plan_folder.phases            remaining phases in NN order (or one, via --phase)
                                   --phase absent here -> skip the folder (multi-folder runs only)
     project_detect.detect         marker files -> stack -> verify commands
@@ -76,6 +86,8 @@ cli.main
                    Committer.commit
       plan_folder.archive         only when every phase succeeded
     run_report.write              REPORT.md in done/, ERROR.md in the plan folder on failure
+    plan_folder.release           finally, so Ctrl-C and a raised error restore too: errors/ after a
+                                  failed phase, otherwise back next to the waiting plans
     failed folder -> stop, unless --continue-on-failure
 ```
 
@@ -92,7 +104,7 @@ implemented and the phase file *was* moved — only the commit is missing.
 |---|---|
 | `cli.py` | Argument parsing, wiring, the loop over the resolved plan folders, dry-run rendering, exit codes |
 | `runner.py` | `PhaseRunner` — the sequential loop and its `RunContext`; owns all success/failure bookkeeping |
-| `plan_folder.py` | Resolve the folder (or every plan subfolder of a `plan/` parent) and its repo root, order phases, `done/` moves, archive, repo-relative path rendering |
+| `plan_folder.py` | Resolve the folder (or every plan subfolder of a `plan/` parent) and its repo root, order phases, claim/release the folder's state directory, `done/` moves, archive, repo-relative path rendering |
 | `project_detect.py` | Validate `config/project_types.json`, match markers, resolve verify commands |
 | `prompt_builder.py` | Render the per-phase prompt |
 | `claude_runner.py` | `ClaudeRunner` (process) and `ClaudeStream` (stream-json parsing) |

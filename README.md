@@ -9,6 +9,10 @@ The [`/plan:multi-step`](#slash-commands) slash command writes a plan as ordered
   00-context.md      shared reference — never implemented, always read first
   01-<kebab>.md      phase 1, ending in a "## Verify" section
   02-<kebab>.md      …
+<repo>/plan/implementing/YYYYMMDD_<feature-name>/
+                     a run currently holds this plan
+<repo>/plan/errors/YYYYMMDD_<feature-name>/
+                     the last run failed here; ERROR.md says why
 <repo>/plan/done/YYYYMMDD_<feature-name>/
                      finished phase files land here, alongside REPORT.md
 ```
@@ -17,6 +21,10 @@ The [`/plan:multi-step`](#slash-commands) slash command writes a plan as ordered
 phase succeeds its file moves to `plan/done/<folder-name>/` and the repository is committed; once
 the last phase is done, `00-context.md` follows it there and the emptied plan folder is removed.
 (A plan folder holding anything else — tooling output, subfolders — is left in place instead.)
+
+While a run works on a plan folder it moves it into `plan/implementing/`, so a second
+`plan-implementer` over the same `plan/` parent cannot pick up a plan that is already underway.
+A failed run parks the folder in `plan/errors/` instead of putting it back.
 
 It works with any stack: the target repository's project type is detected from marker files, and
 the matching checks are named in the prompt. Existing `tools/*.bat` in the target repo always win
@@ -90,7 +98,15 @@ start.bat D:\wamp64\www\tickets-api\plan
 | `--continue-on-failure` | Keep going after a failed phase (and after a failed plan folder) instead of stopping |
 
 The repository root is `<repo>/plan/<feature>` by convention; otherwise the nearest `.git`
-ancestor is used, and failing that `--project` is required.
+ancestor is used, and failing that `--project` is required. `plan/implementing/<feature>` and
+`plan/errors/<feature>` resolve the same way.
+
+Each folder is claimed into `plan/implementing/<feature>/` for the duration of its run and only
+leaves it at the end: archived to `plan/done/` when every phase passed, parked in
+`plan/errors/<feature>/` when a phase failed, back in `plan/<feature>/` when the run was
+interrupted. Neither `implementing/` nor `errors/` is picked up by a later run, and both are
+listed at startup — so a folder a hard kill stranded in `implementing/` is named, not silently
+invisible. Retry it by moving it back to `plan/`, or by pointing the tool straight at it.
 
 Exit codes: `0` all phases done, `1` at least one phase failed, `2` bad configuration or input.
 
@@ -100,8 +116,9 @@ Every run appends itself to `plan/done/<feature>/REPORT.md` as a `## Run N` sect
 end time, total days/hours/minutes, a row per phase, and a row per Claude session with its
 input, output and cache tokens plus cost — commit sessions included — with a totals row.
 
-A failed run additionally writes `plan/<feature>/ERROR.md` next to the phases that are still
-open, naming the phase that failed and why. The next successful run clears it.
+A failed run additionally writes `ERROR.md` next to the phases that are still open, naming the
+phase that failed and why; it travels with the folder to `plan/errors/<feature>/`. The next
+successful run clears it.
 
 ## Settings
 

@@ -28,14 +28,19 @@ sys.exit(0)
 """
 
 
+def _stub_launcher(tmp_path: Path, name: str, body: str) -> Path:
+    """A `.bat` running `body` as a Python script, standing in for the `claude` executable."""
+    script = tmp_path / f"{name}.py"
+    script.write_text(body, encoding="utf-8")
+    launcher = tmp_path / f"{name}.bat"
+    launcher.write_text(f'@echo off\r\n"{sys.executable}" "{script}"\r\n', encoding="utf-8")
+    return launcher
+
+
 @pytest.fixture
 def fake_claude(tmp_path: Path) -> Path:
     """A batch stub that behaves like `claude -p ... --output-format stream-json`."""
-    script = tmp_path / "fake_claude.py"
-    script.write_text(FAKE_CLAUDE_PY, encoding="utf-8")
-    launcher = tmp_path / "fake_claude.bat"
-    launcher.write_text(f'@echo off\r\n"{sys.executable}" "{script}"\r\n', encoding="utf-8")
-    return launcher
+    return _stub_launcher(tmp_path, "fake_claude", FAKE_CLAUDE_PY)
 
 
 def run_cli(*args: str) -> int:
@@ -88,6 +93,7 @@ def test_dry_run_changes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "python" in output
     assert (plan / "01-step-1.md").exists()
     assert not (repo / "plan" / "done").exists()
+    assert not (repo / "plan" / "implementing").exists()
 
 
 def test_failing_claude_stops_before_moving_or_committing(
@@ -95,23 +101,23 @@ def test_failing_claude_stops_before_moving_or_committing(
 ) -> None:
     repo = tmp_path / "repo"
     plan = make_plan_repo(repo, phase_count=2)
-    script = tmp_path / "failing_claude.py"
-    script.write_text(
+    body = (
         "import json,sys\n"
         f"print(json.dumps({json.dumps({'type': 'result', 'is_error': True, 'result': 'nope'})}))\n"
-        "sys.exit(1)\n",
-        encoding="utf-8",
+        "sys.exit(1)\n"
     )
-    launcher = tmp_path / "failing_claude.bat"
-    launcher.write_text(f'@echo off\r\n"{sys.executable}" "{script}"\r\n', encoding="utf-8")
-    monkeypatch.setenv(ENV_CLAUDE_EXECUTABLE, str(launcher))
+    monkeypatch.setenv(ENV_CLAUDE_EXECUTABLE, str(_stub_launcher(tmp_path, "failing_claude", body)))
     monkeypatch.setenv(ENV_COMMIT, "")
 
     exit_code = run_cli(str(plan))
 
+    parked = repo / "plan" / "errors" / "demo"
+
     assert exit_code == 1
-    assert (plan / "01-step-1.md").exists()
-    assert "01-step-1.md" in (plan / "ERROR.md").read_text(encoding="utf-8")
+    assert (parked / "01-step-1.md").exists()
+    assert "01-step-1.md" in (parked / "ERROR.md").read_text(encoding="utf-8")
+    assert not plan.exists()
+    assert not (repo / "plan" / "implementing").exists()
     report = (repo / "plan" / "done" / "demo" / "REPORT.md").read_text(encoding="utf-8")
     assert "| Phases | 0 completed, 1 failed of 2 |" in report
 
@@ -153,3 +159,41 @@ def test_plan_parent_folder_implements_every_subfolder(
         report = (done / feature / "REPORT.md").read_text(encoding="utf-8")
         assert f"# Implementation Report — {feature}" in report
         assert "| Claude sessions | 1 |" in report
+
+
+LISTING_CLAUDE_PY = """
+import json
+import os
+import sys
+
+with open(os.environ["PLAN_LISTING_FILE"], "w", encoding="utf-8") as handle:
+    handle.write("\\n".join(sorted(os.listdir("plan"))))
+print(json.dumps({"type": "result", "is_error": False, "result": "implemented",
+                  "duration_ms": 10, "total_cost_usd": 0.01, "usage": {}}), flush=True)
+sys.exit(0)
+"""
+
+
+def test_a_claimed_folder_is_hidden_from_a_concurrent_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fake Claude lists `plan/` mid-phase — exactly what a second run would resolve."""
+    repo = tmp_path / "repo"
+    plan = make_plan_repo(repo, phase_count=1)
+    (repo / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    listing = tmp_path / "plan_listing.txt"
+    monkeypatch.setenv("PLAN_LISTING_FILE", str(listing))
+    monkeypatch.setenv(
+        ENV_CLAUDE_EXECUTABLE,
+        str(_stub_launcher(tmp_path, "listing_claude", LISTING_CLAUDE_PY)),
+    )
+    monkeypatch.setenv(ENV_COMMIT, "")
+
+    exit_code = run_cli(str(plan))
+
+    mid_run = listing.read_text(encoding="utf-8").splitlines()
+    assert exit_code == 0
+    assert mid_run == ["implementing"]
+    assert (repo / "plan" / "done" / "demo" / "REPORT.md").exists()
+    assert not (repo / "plan" / "implementing").exists()
+    assert not plan.exists()

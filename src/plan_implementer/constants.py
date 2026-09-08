@@ -33,7 +33,13 @@ ORIGINAL_FILE_NAME: Final[str] = "original.md"
 REPORT_FILE_NAME: Final[str] = "REPORT.md"
 ERROR_FILE_NAME: Final[str] = "ERROR.md"
 DONE_DIR_NAME: Final[str] = "done"
+IMPLEMENTING_DIR_NAME: Final[str] = "implementing"
+ERRORS_DIR_NAME: Final[str] = "errors"
 PLAN_DIR_NAME: Final[str] = "plan"
+
+# A plan folder sitting in one of these is in a state, not at a location: the `plan/` dir that
+# owns it is one level further up.
+STATE_DIR_NAMES: Final[tuple[str, ...]] = (IMPLEMENTING_DIR_NAME, ERRORS_DIR_NAME, DONE_DIR_NAME)
 GIT_DIR_NAME: Final[str] = ".git"
 PHASE_FILE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^(?P<number>\d{2})-.+\.md$")
 

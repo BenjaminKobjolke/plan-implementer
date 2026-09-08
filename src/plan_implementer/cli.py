@@ -8,6 +8,7 @@ from plan_implementer import plan_folder, project_detect, run_report
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRunner
 from plan_implementer.committer import Committer
+from plan_implementer.constants import ERRORS_DIR_NAME, IMPLEMENTING_DIR_NAME
 from plan_implementer.errors import ConfigurationError, PlanImplementerError
 from plan_implementer.models import Phase, PlanFolder, ProjectType
 from plan_implementer.runner import PhaseRunner, RunContext
@@ -42,39 +43,62 @@ def _run(arguments: argparse.Namespace, logger: AppLogger) -> int:
     if len(folders) > 1:
         logger.info(f"{len(folders)} plan folders: {', '.join(f.feature_name for f in folders)}")
 
+    parent = plan_folder.plan_parent(folders[0])
+    _log_parked(parent / IMPLEMENTING_DIR_NAME, "in progress or left by an interrupted run", logger)
+    _log_parked(parent / ERRORS_DIR_NAME, "parked after a failed run", logger)
+
     exit_code = EXIT_OK
     for folder in folders:
+        # Claim before reading the phases: a `Phase.path` taken first would point at the old
+        # location. `--dry-run` looks but does not touch.
+        claimed = folder if arguments.dry_run else plan_folder.claim(folder)
+        failed = False
         try:
-            phases = plan_folder.phases(folder, arguments.phase)
-        except ConfigurationError:
-            # `--phase NN` naming a phase this folder no longer has: skip it rather than abort
-            # the whole run. A single folder keeps the explicit error.
-            if len(folders) == 1:
-                raise
-            logger.info(f"No phase {arguments.phase} left in {folder.path} - skipped")
-            continue
+            try:
+                phases = plan_folder.phases(claimed, arguments.phase)
+            except ConfigurationError:
+                # `--phase NN` naming a phase this folder no longer has: skip it rather than
+                # abort the whole run. A single folder keeps the explicit error.
+                if len(folders) == 1:
+                    raise
+                logger.info(f"No phase {arguments.phase} left in {claimed.path} - skipped")
+                continue
 
-        project_type = project_detect.detect(folder.repo_root, config)
+            project_type = project_detect.detect(claimed.repo_root, config)
 
-        if not phases:
-            logger.info(f"No phases left in {folder.path}")
-            archived = plan_folder.archive(folder)
-            if archived is not None:
-                logger.info(f"Plan complete - archived to {archived}")
-            continue
+            if not phases:
+                logger.info(f"No phases left in {claimed.path}")
+                archived = plan_folder.archive(claimed)
+                if archived is not None:
+                    logger.info(f"Plan complete - archived to {archived}")
+                continue
 
-        if arguments.dry_run:
-            _render_dry_run(folder, phases, project_type, commit_spec, logger)
-            continue
+            if arguments.dry_run:
+                _render_dry_run(claimed, phases, project_type, commit_spec, logger)
+                continue
 
-        if _implement(folder, phases, project_type, commit_spec, arguments, settings, logger):
-            continue
+            if _implement(claimed, phases, project_type, commit_spec, arguments, settings, logger):
+                continue
 
-        exit_code = EXIT_FAILED_PHASE
-        if not arguments.continue_on_failure:
-            break
+            failed = True
+            exit_code = EXIT_FAILED_PHASE
+            if not arguments.continue_on_failure:
+                break
+        finally:
+            # Also on Ctrl-C and on a raised error, so a folder is never left claimed. An
+            # interrupt is not a failure, so it goes back to the waiting plans.
+            if claimed is not folder:
+                plan_folder.release(claimed, failed=failed)
 
     return exit_code
+
+
+def _log_parked(directory: Path, reason: str, logger: AppLogger) -> None:
+    """Name the folders this run will not see, so a stranded plan is not silently invisible."""
+    if not directory.is_dir():
+        return
+    for path in sorted(directory.iterdir()):
+        logger.info(f"Skipped - {reason}: {path}")
 
 
 def _implement(
