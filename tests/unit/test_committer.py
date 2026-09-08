@@ -1,5 +1,6 @@
 """Unit tests for the commit strategies."""
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -46,6 +47,40 @@ def test_shell_spec_runs_a_shell_command(tmp_path: Path) -> None:
 
 
 def test_failing_shell_spec_reports_failure(tmp_path: Path) -> None:
+    committer = Committer(
+        'python -c "raise SystemExit(3)"', make_runner(), AppLogger(enabled=False)
+    )
+
+    assert committer.commit(tmp_path) is False
+
+
+def make_repo(path: Path) -> None:
+    """Initialize a git repository with one commit so HEAD can move."""
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, check=True)
+    (path / "seed.txt").write_text("seed", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-qm", "seed"], cwd=path, check=True)
+
+
+def test_shell_failure_is_ignored_when_the_commit_landed(tmp_path: Path) -> None:
+    make_repo(tmp_path)
+    (tmp_path / "feature.txt").write_text("work", encoding="utf-8")
+
+    committer = Committer(
+        'git add -A && git commit -qm "phase" && python -c "raise SystemExit(3)"',
+        make_runner(),
+        AppLogger(enabled=False),
+    )
+
+    assert committer.commit(tmp_path) is True
+
+
+def test_shell_failure_stands_when_nothing_was_committed(tmp_path: Path) -> None:
+    make_repo(tmp_path)
+    (tmp_path / "feature.txt").write_text("work", encoding="utf-8")
+
     committer = Committer(
         'python -c "raise SystemExit(3)"', make_runner(), AppLogger(enabled=False)
     )
