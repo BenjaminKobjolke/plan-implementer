@@ -22,3 +22,10 @@ claude-plans
 /PLAN_*.md
 PLAN.md
 HANDOFF.md
+
+# graphify knowledge graph output (build artifacts + cache)
+graphify-out/
+src/graphify-out/
+
+# Local coding-rules state (machine-specific pluginRoot)
+coding-rules.json
