@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "COMMON_RULES.md": 3,
+    "AI_RULES.md": 19,
+    "PYTHON_RULES.md": 5
+  },
+  "delegation": "codex",
+  "pointerVersion": 1,
+  "pluginRoot": "D:\\GIT\\BenjaminKobjolke\\claude-coding-rules\\plugins\\coding-rules"
+}

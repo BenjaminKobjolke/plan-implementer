@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "types": {
+    "unity": {
+      "priority": 10,
+      "markers": [{ "path": "ProjectSettings/ProjectVersion.txt" }],
+      "verify": []
+    },
+    "flutter": {
+      "priority": 20,
+      "markers": [{ "path": "pubspec.yaml", "contains": "flutter:" }],
+      "verify": [
+        { "role": "analyze", "command": "flutter analyze" },
+        { "role": "test", "command": "flutter test" }
+      ],
+      "command_prefix": { "value": "fvm ", "when_any_exists": [".fvmrc", ".fvm"] }
+    },
+    "svelte": {
+      "priority": 30,
+      "markers": [{ "path": "svelte.config.js" }],
+      "verify": [
+        { "role": "analyze", "command": "npm run check" },
+        { "role": "lint", "command": "npm run lint" },
+        { "role": "test", "command": "npm test" }
+      ]
+    },
+    "node": {
+      "priority": 40,
+      "markers": [{ "path": "package.json" }],
+      "verify": [
+        { "role": "test", "command": "npm test" },
+        { "role": "lint", "command": "npm run lint" }
+      ]
+    },
+    "php": {
+      "priority": 50,
+      "markers": [{ "path": "composer.json" }],
+      "verify": [
+        { "role": "test", "command": "composer test" },
+        { "role": "analyze", "command": "vendor/bin/phpstan analyse" }
+      ]
+    },
+    "python": {
+      "priority": 60,
+      "markers": [{ "path": "pyproject.toml" }],
+      "verify": [
+        { "role": "test", "command": "uv run pytest" },
+        { "role": "lint", "command": "uv run ruff check ." },
+        { "role": "analyze", "command": "uv run mypy" }
+      ]
+    },
+    "csharp": {
+      "priority": 70,
+      "markers": [{ "glob": "*.sln" }, { "glob": "*.csproj" }],
+      "verify": [
+        { "role": "build", "command": "dotnet build" },
+        { "role": "test", "command": "dotnet test" }
+      ]
+    },
+    "arduino": {
+      "priority": 80,
+      "markers": [{ "path": "platformio.ini" }],
+      "verify": [{ "role": "build", "command": "pio run" }]
+    }
+  }
+}
