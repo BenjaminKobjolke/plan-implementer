@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRunner
 from plan_implementer.committer import Committer
+from plan_implementer.constants import COMMIT_SESSION_LABEL
 from plan_implementer.models import ClaudeResult
 
 SUCCESS = ClaudeResult(success=True, result_message="ok", duration_ms=1, cost_usd=None)
@@ -28,7 +29,7 @@ def test_slash_spec_runs_a_claude_prompt(tmp_path: Path) -> None:
     runner = make_runner()
 
     assert Committer("/git:commit", runner, AppLogger(enabled=False)).commit(tmp_path) is True
-    runner.run.assert_called_once_with("/git:commit", tmp_path)
+    runner.run.assert_called_once_with("/git:commit", tmp_path, label=COMMIT_SESSION_LABEL)
 
 
 def test_shell_spec_runs_a_shell_command(tmp_path: Path) -> None:

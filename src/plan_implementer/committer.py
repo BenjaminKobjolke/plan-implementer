@@ -5,7 +5,7 @@ from pathlib import Path
 
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRun
-from plan_implementer.constants import CLAUDE_PROMPT_PREFIX
+from plan_implementer.constants import CLAUDE_PROMPT_PREFIX, COMMIT_SESSION_LABEL
 
 
 class Committer:
@@ -29,7 +29,7 @@ class Committer:
 
         if self._spec.startswith(CLAUDE_PROMPT_PREFIX):
             self._logger.info(f"Committing via Claude: {self._spec}")
-            return self._claude.run(self._spec, repo_root).success
+            return self._claude.run(self._spec, repo_root, label=COMMIT_SESSION_LABEL).success
 
         self._logger.info(f"Committing via command: {self._spec}")
         completed = subprocess.run(self._spec, shell=True, cwd=repo_root, check=False)

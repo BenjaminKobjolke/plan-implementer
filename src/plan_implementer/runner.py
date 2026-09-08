@@ -3,6 +3,7 @@
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from plan_implementer import plan_folder, prompt_builder
 from plan_implementer.app_logger import AppLogger
@@ -48,11 +49,14 @@ class PhaseRunner:
         self._logger.info(f"Phases:       {total}")
         self._logger.info(_SEPARATOR)
 
+        started_at = datetime.now()
         completed = 0
         failed = 0
+        results: list[PhaseResult] = []
 
         for index, phase in enumerate(phases, start=1):
             result = self._run_phase(phase, index, total)
+            results.append(result)
 
             if not result.success:
                 failed += 1
@@ -72,7 +76,15 @@ class PhaseRunner:
         self._logger.info(f"Completed: {completed}/{total}   Failed: {failed}")
         self._logger.info(_SEPARATOR)
 
-        return RunSummary(completed=completed, failed=failed, total=total, archived_to=archived)
+        return RunSummary(
+            completed=completed,
+            failed=failed,
+            total=total,
+            started_at=started_at,
+            ended_at=datetime.now(),
+            archived_to=archived,
+            phases=tuple(results),
+        )
 
     def _run_phase(self, phase: Phase, index: int, total: int) -> PhaseResult:
         self._logger.info("")
@@ -84,7 +96,7 @@ class PhaseRunner:
             self._context.folder, phase, self._context.project_type
         )
         started = time.monotonic()
-        result = self._claude.run(prompt, self._context.folder.repo_root)
+        result = self._claude.run(prompt, self._context.folder.repo_root, label=phase.name)
         elapsed = time.monotonic() - started
 
         self._logger.info("")

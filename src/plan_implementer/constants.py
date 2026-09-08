@@ -30,6 +30,8 @@ DOWNLOAD_TIMEOUT_SECONDS: Final[int] = 30
 
 CONTEXT_FILE_NAME: Final[str] = "00-context.md"
 ORIGINAL_FILE_NAME: Final[str] = "original.md"
+REPORT_FILE_NAME: Final[str] = "REPORT.md"
+ERROR_FILE_NAME: Final[str] = "ERROR.md"
 DONE_DIR_NAME: Final[str] = "done"
 PLAN_DIR_NAME: Final[str] = "plan"
 GIT_DIR_NAME: Final[str] = ".git"
@@ -45,6 +47,10 @@ WORKFLOW_ARTIFACT_SUFFIXES: Final[tuple[str, ...]] = (
 DEFAULT_PERMISSION_MODE: Final[str] = "bypassPermissions"
 CLAUDE_EXECUTABLE_NAME: Final[str] = "claude"
 CLAUDE_PROMPT_PREFIX: Final[str] = "/"
+
+# How a Claude session is named in the run report.
+COMMIT_SESSION_LABEL: Final[str] = "commit"
+DEFAULT_SESSION_LABEL: Final[str] = "session"
 UNKNOWN_PROJECT_TYPE: Final[str] = "unknown"
 
 # Existing project tooling wins over a stack's default command for the same role.

@@ -21,8 +21,10 @@ the contract below. **When they change, this tool has to follow** — that alrea
   00-context.md      shared reference — never implemented, always read first
   01-<kebab>.md      phase 1, ending in a "## Verify" section
   02-<kebab>.md      …
+  ERROR.md           written by a failed run, overwritten by the next one
 <repo>/plan/done/YYYYMMDD_<feature-name>/
                      finished phase files, then 00-context.md at the end
+  REPORT.md          one "## Run N" section per run: times, sessions, tokens, cost
 ```
 
 | Rule | Where |
@@ -34,6 +36,8 @@ the contract below. **When they change, this tool has to follow** — that alrea
 | A finished phase and its `<stem>-*` sidecars (reports, delegate logs) move to `<repo>/plan/done/<folder-name>/` | `plan_folder.done_root`, `mark_done` |
 | An existing destination is never overwritten | `mark_done`, `archive` |
 | When no phase remains, the leftovers follow and the emptied folder is removed | `plan_folder.archive` |
+| Every run appends itself to `REPORT.md`; a failed run also writes `ERROR.md` | `run_report.write` |
+| A successful run clears the `ERROR.md` an earlier failed run left behind | `run_report.write` |
 
 `archive()` deletes the plan folder **only** when nothing is left in it. A folder still holding
 subfolders or tooling output (delegate logs, for instance) is kept, so nothing that is not ours
@@ -66,6 +70,7 @@ cli.main
       ok      -> plan_folder.mark_done
                  Committer.commit
     plan_folder.archive         only when every phase succeeded
+  run_report.write              REPORT.md in done/, ERROR.md in the plan folder on failure
 ```
 
 Every phase gets a **new** Claude process (`--no-session-persistence`); nothing carries over
@@ -86,6 +91,7 @@ implemented and the phase file *was* moved — only the commit is missing.
 | `prompt_builder.py` | Render the per-phase prompt |
 | `claude_runner.py` | `ClaudeRunner` (process) and `ClaudeStream` (stream-json parsing) |
 | `tool_summary.py` | One readable console line per tool call |
+| `run_report.py` | Append the run to `REPORT.md`; write `ERROR.md` when a phase failed |
 | `committer.py` | Dispatch the commit spec to Claude or to the shell |
 | `settings.py` | `settings.json` + environment overrides, validated with pydantic |
 | `models.py` | The typed values crossing those boundaries |
@@ -129,6 +135,20 @@ run that produced no `result` event at all is a failure too.
 Everything goes through `AppLogger`, including the character-level streaming (`AppLogger.stream`),
 so console output has one off switch.
 
+## Run report
+
+The console is not a record, so every run also writes one. `ClaudeRunner` keeps a `SessionRecord`
+for each process it starts — the label the caller passed (the phase file name, or `commit`), the
+result, its cost and its `TokenUsage`, parsed from the `usage` field of the `result` event. That
+list lives on the concrete runner rather than on the `ClaudeRun` protocol, so `PhaseRunner` and
+`Committer` need no extra dependency and `cli.main` can hand it straight to `run_report.write`.
+Commit sessions therefore count too — `/git:commit` is a real Claude process with real tokens.
+
+`REPORT.md` is appended, never overwritten: the next run number comes from counting the existing
+`## Run ` headings, so a plan implemented across several sittings keeps its full history in one
+file. An interrupted run writes nothing — `cli.main` returns on the `KeyboardInterrupt` before the
+report is reached.
+
 ## Tests
 
 - `tests/unit/` — plan folder bookkeeping, detection (a parametrized table driven by the real
@@ -137,7 +157,8 @@ so console output has one off switch.
   so no test touches the network).
 - `tests/integration/` — a full run against a fake `claude` batch stub emitting canned
   `stream-json`: phases land in `plan/done/<folder-name>/`, the commit spec runs once per phase,
-  the folder is archived; a failing run moves and commits nothing; `--dry-run` changes nothing.
+  the folder is archived, `REPORT.md` lands next to them; a failing run moves and commits nothing
+  but still leaves `ERROR.md` and a report; `--dry-run` changes nothing.
   Windows-only (the stub is a `.bat`).
 
 Run them with `tools\run_tests.bat` and `tools\run_integration_tests.bat`.

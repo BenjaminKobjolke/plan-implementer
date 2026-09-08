@@ -10,7 +10,7 @@ The [`/plan:multi-step`](#slash-commands) slash command writes a plan as ordered
   01-<kebab>.md      phase 1, ending in a "## Verify" section
   02-<kebab>.md      …
 <repo>/plan/done/YYYYMMDD_<feature-name>/
-                     finished phase files land here
+                     finished phase files land here, alongside REPORT.md
 ```
 
 `plan-implementer` points a fresh Claude Code session at one phase at a time, in order. After a
@@ -84,6 +84,15 @@ The repository root is `<repo>/plan/<feature>` by convention; otherwise the near
 ancestor is used, and failing that `--project` is required.
 
 Exit codes: `0` all phases done, `1` at least one phase failed, `2` bad configuration or input.
+
+### Output
+
+Every run appends itself to `plan/done/<feature>/REPORT.md` as a `## Run N` section: start and
+end time, total days/hours/minutes, a row per phase, and a row per Claude session with its
+input, output and cache tokens plus cost — commit sessions included — with a totals row.
+
+A failed run additionally writes `plan/<feature>/ERROR.md` next to the phases that are still
+open, naming the phase that failed and why. The next successful run clears it.
 
 ## Settings
 

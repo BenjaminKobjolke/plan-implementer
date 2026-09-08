@@ -4,7 +4,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from plan_implementer import plan_folder, project_detect
+from plan_implementer import plan_folder, project_detect, run_report
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRunner
 from plan_implementer.committer import Committer
@@ -66,6 +66,7 @@ def _run(arguments: argparse.Namespace, logger: AppLogger) -> int:
         logger,
     )
     summary = runner.run(phases)
+    run_report.write(folder, summary, claude.sessions, logger)
     return EXIT_FAILED_PHASE if summary.failed else EXIT_OK
 
 

@@ -1,6 +1,7 @@
 """Typed values passed between the modules of this application."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 
@@ -53,6 +54,35 @@ class ProjectType:
 
 
 @dataclass(frozen=True)
+class TokenUsage:
+    """Token counts of one Claude session, as its `result` event reported them."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+
+    @property
+    def total(self) -> int:
+        """Every token the session touched, cache included."""
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_creation_tokens
+        )
+
+    def __add__(self, other: TokenUsage) -> TokenUsage:
+        """Sum two sessions, so run totals are `sum(usages, TokenUsage())`."""
+        return TokenUsage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_creation_tokens=self.cache_creation_tokens + other.cache_creation_tokens,
+        )
+
+
+@dataclass(frozen=True)
 class ClaudeResult:
     """The outcome of one headless Claude Code process."""
 
@@ -60,6 +90,15 @@ class ClaudeResult:
     result_message: str | None = None
     duration_ms: int | None = None
     cost_usd: float | None = None
+    usage: TokenUsage = TokenUsage()
+
+
+@dataclass(frozen=True)
+class SessionRecord:
+    """One headless Claude process a run started, and what it reported."""
+
+    label: str
+    result: ClaudeResult
 
 
 @dataclass(frozen=True)
@@ -80,4 +119,7 @@ class RunSummary:
     completed: int
     failed: int
     total: int
+    started_at: datetime
+    ended_at: datetime
     archived_to: Path | None = None
+    phases: tuple[PhaseResult, ...] = ()

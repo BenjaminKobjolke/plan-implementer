@@ -4,6 +4,7 @@ import json
 
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeStream
+from plan_implementer.models import TokenUsage
 from plan_implementer.tool_summary import summarize_tool
 
 
@@ -23,6 +24,42 @@ def test_result_event_is_captured(caplog_free_logger: AppLogger) -> None:
     assert stream.result.success is True
     assert stream.result.result_message == "done"
     assert stream.result.cost_usd == 1.5
+
+
+def test_result_event_token_usage_is_captured(caplog_free_logger: AppLogger) -> None:
+    stream = ClaudeStream(caplog_free_logger)
+
+    feed(
+        stream,
+        [
+            {
+                "type": "result",
+                "is_error": False,
+                "usage": {
+                    "input_tokens": 1120,
+                    "output_tokens": 210,
+                    "cache_read_input_tokens": 40010,
+                    "cache_creation_input_tokens": 900,
+                },
+            }
+        ],
+    )
+
+    assert stream.result.usage == TokenUsage(
+        input_tokens=1120,
+        output_tokens=210,
+        cache_read_tokens=40010,
+        cache_creation_tokens=900,
+    )
+    assert stream.result.usage.total == 42240
+
+
+def test_missing_or_unusable_usage_counts_as_zero(caplog_free_logger: AppLogger) -> None:
+    stream = ClaudeStream(caplog_free_logger)
+
+    feed(stream, [{"type": "result", "is_error": False, "usage": "not a mapping"}])
+
+    assert stream.result.usage == TokenUsage()
 
 
 def test_error_result_marks_failure(caplog_free_logger: AppLogger) -> None:

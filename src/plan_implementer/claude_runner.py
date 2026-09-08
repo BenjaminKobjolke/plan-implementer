@@ -8,17 +8,21 @@ from pathlib import Path
 from typing import Protocol
 
 from plan_implementer.app_logger import AppLogger
-from plan_implementer.constants import CLAUDE_EXECUTABLE_NAME, ENV_CLAUDE_EXECUTABLE
+from plan_implementer.constants import (
+    CLAUDE_EXECUTABLE_NAME,
+    DEFAULT_SESSION_LABEL,
+    ENV_CLAUDE_EXECUTABLE,
+)
 from plan_implementer.errors import ConfigurationError
-from plan_implementer.models import ClaudeResult
+from plan_implementer.models import ClaudeResult, SessionRecord, TokenUsage
 from plan_implementer.tool_summary import summarize_tool
 
 
 class ClaudeRun(Protocol):
     """The single entry point every caller uses to talk to Claude Code."""
 
-    def run(self, prompt: str, cwd: Path) -> ClaudeResult:
-        """Run one fresh Claude Code process to completion."""
+    def run(self, prompt: str, cwd: Path, label: str = "") -> ClaudeResult:
+        """Run one fresh Claude Code process to completion; `label` names it in the report."""
         ...
 
 
@@ -50,6 +54,7 @@ class ClaudeStream:
                 result_message=_as_optional_str(event.get("result")),
                 duration_ms=_as_optional_int(event.get("duration_ms")),
                 cost_usd=_as_optional_float(event.get("total_cost_usd")),
+                usage=_as_usage(event.get("usage")),
             )
 
     def _handle_tool_results(self, event: dict[str, object]) -> None:
@@ -139,8 +144,9 @@ class ClaudeRunner:
         self._logger = logger
         self._permission_mode = permission_mode
         self._executable = executable or find_claude()
+        self.sessions: list[SessionRecord] = []
 
-    def run(self, prompt: str, cwd: Path) -> ClaudeResult:
+    def run(self, prompt: str, cwd: Path, label: str = "") -> ClaudeResult:
         """Run `prompt` in `cwd` and stream its progress to the console."""
         command = [
             self._executable,
@@ -172,6 +178,7 @@ class ClaudeRunner:
                 self._consume(stream, line.strip())
             return_code = process.wait()
         except KeyboardInterrupt:
+            # Not recorded: `cli.main` returns on the interrupt before any report is written.
             self._logger.warning("\n\nInterrupted. Stopping Claude...")
             process.terminate()
             raise
@@ -180,13 +187,24 @@ class ClaudeRunner:
                 process.stdout.close()
 
         if return_code != 0:
-            return ClaudeResult(
-                success=False,
-                result_message=stream.result.result_message or f"claude exited with {return_code}",
-                duration_ms=stream.result.duration_ms,
-                cost_usd=stream.result.cost_usd,
+            return self._record(
+                label,
+                ClaudeResult(
+                    success=False,
+                    result_message=(
+                        stream.result.result_message or f"claude exited with {return_code}"
+                    ),
+                    duration_ms=stream.result.duration_ms,
+                    cost_usd=stream.result.cost_usd,
+                    usage=stream.result.usage,
+                ),
             )
-        return stream.result
+        return self._record(label, stream.result)
+
+    def _record(self, label: str, result: ClaudeResult) -> ClaudeResult:
+        """Remember this session for the run report, and hand the result back to the caller."""
+        self.sessions.append(SessionRecord(label=label or DEFAULT_SESSION_LABEL, result=result))
+        return result
 
     def _consume(self, stream: ClaudeStream, line: str) -> None:
         if not line:
@@ -226,3 +244,18 @@ def _as_optional_int(value: object) -> int | None:
 
 def _as_optional_float(value: object) -> float | None:
     return float(value) if isinstance(value, int | float) else None
+
+
+def _as_usage(value: object) -> TokenUsage:
+    if not isinstance(value, dict):
+        return TokenUsage()
+    return TokenUsage(
+        input_tokens=_as_int(value.get("input_tokens")),
+        output_tokens=_as_int(value.get("output_tokens")),
+        cache_read_tokens=_as_int(value.get("cache_read_input_tokens")),
+        cache_creation_tokens=_as_int(value.get("cache_creation_input_tokens")),
+    )
+
+
+def _as_int(value: object) -> int:
+    return int(value) if isinstance(value, int | float) else 0
