@@ -56,3 +56,8 @@ console output goes through `app_logger.AppLogger`.
   `implement-phase.md` define the plan folder layout and the per-phase workflow this tool
   automates. Keep them in step when either changes.
 
+## Knowledge graph (graphify)
+
+The graphify scan root for this project is `src/`. Rebuild with
+`/graphify src/ --directed` from the repo root; the live graph is the root `graphify-out/`.
+See `CODING_RULES.md` for the full rules.

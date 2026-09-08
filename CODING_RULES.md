@@ -3,7 +3,7 @@
 <!-- deepseek: disabled -->
 
 # Version
-3
+5
 
 Increase this version number whenever this rule file changes.
 
@@ -124,6 +124,20 @@ Every project must provide the following batch files in the `tools/` directory:
 - `tools/run_integration_tests.bat` — runs integration tests
 
 These scripts ensure a consistent way to execute tests across environments.
+
+Both must **exit with the test runner's own exit code** — capture it right after the run
+(`set TESTRESULT=%ERRORLEVEL%`) and end with `exit /b %TESTRESULT%`. A bat that prints
+"Some tests failed!" but exits 0 reports green to CI, to callers and to AI agents. Never pipe the
+test command into a filter — the pipe's exit code is the *filter's*, not the runner's; write to a
+temp file and filter that instead.
+
+---
+
+## No `pause` in Batch Files
+
+Batch files must never contain a `pause` line. `pause` waits for a keypress, so any bat that has one
+hangs forever when run by CI, another bat, or an AI agent. End with an explicit `exit /b <code>`
+instead, and let the caller decide whether to keep the window open (`cmd /k`).
 
 ---
 
@@ -422,7 +436,7 @@ the wrong side of **No God Classes**.
   fields.
 
 # Version
-19
+20
 
 Increase this version number whenever this rule file changes.
 
@@ -537,8 +551,8 @@ rules make that impossible and leave a debug trail when it happens anyway.
   `## DELEGATE QUESTIONS`, answer those questions yourself in the fallback run,
   or surface them to the user if they need a decision.
 
-These rules apply to EVERY delegated step below — plan DRY check, convention
-check, post-implementation DRY audit and the graphify refresh.
+These rules apply to EVERY delegated step below — the plan DRY + convention
+check, the post-implementation DRY audit and the graphify refresh.
 
 ## Feature / Change Workflow
 
@@ -551,19 +565,16 @@ path to both plan-DRY commands.
 ```
 plan approved
 
-plan DRY check
-  delegate enabled (codex or deepseek — run <PROMPT> via that backend's CLI, see Delegation backends above; prepend graphify preamble if applicable; obey the Delegation contract — no-questions suffix, timeout, log, SUMMARY check):
-    <PROMPT> = "FULL PATH TO PLAN - Can you check the plan for DRY opportunities and if you find any, apply them to the original plan file. Only edit the plan file — do NOT modify any source code or implement the plan. Always add a summary at the end called SUMMARY DRY — if you made changes, describe what and why; if you found nothing, write 'No DRY opportunities found.'"
-  delegate disabled:
-    run /plan:dry <plan-file> in a subagent (see "Self-fallback in a
-    subagent"); inline only if a subagent isn't available.
-
-plan convention check
-  delegate enabled (codex or deepseek — run <PROMPT> via that backend's CLI, see Delegation backends above; prepend graphify preamble if applicable; obey the Delegation contract — no-questions suffix, timeout, log, SUMMARY check):
-    <PROMPT> = "FULL PATH TO PLAN $convention-check - If you want to make any changes, apply them to the original plan file. Only edit the plan file — do NOT modify any source code or implement the plan. Always add a summary at the end called SUMMARY CONVENTION CHECK — if you made changes, describe what and why; if you found nothing, write 'No convention issues found.'"
-  delegate disabled:
-    run /convention:check in a subagent (see note) — apply findings to the
-    plan file
+plan DRY + convention check — one step; conventions first, so what already
+exists in the codebase informs the DRY rewrite instead of arriving after it
+  delegate enabled (codex or deepseek — run <PROMPT> via that backend's CLI, see Delegation backends above; prepend graphify preamble if applicable; obey the Delegation contract — no-questions suffix, timeout, log, SUMMARY check; this step needs BOTH summary blocks, a missing one counts as a failed SUMMARY check):
+    <PROMPT> = "FULL PATH TO PLAN $convention-check - First scan the codebase for the existing utilities, patterns and naming conventions this plan should reuse. Then, with those findings in hand, check the plan for DRY, KISS and YAGNI opportunities. Apply both sets of findings to the original plan file. Only edit the plan file — do NOT modify any source code or implement the plan. Always end with two summary blocks: SUMMARY CONVENTION CHECK — what you reused and why, or 'No convention issues found.' — and SUMMARY DRY — what you consolidated and why, or 'No DRY opportunities found.'"
+  delegate disabled (two subagents, in this order — /convention:check is
+  read-only and its report does not reach the /plan:dry subagent by itself):
+    1. run /convention:check in a subagent (see "Self-fallback in a subagent")
+    2. apply its findings to the plan file yourself
+    3. run /plan:dry <plan-file> in a subagent; inline only if a subagent
+       isn't available.
 
 /plan:dry-checked    reload the DRY and convention adjusted plan
 
@@ -612,9 +623,10 @@ refresh graphify graph — only if the graphify addon is present in this project
 Do not write a single line until ALL are true. Restate this gate aloud at the
 moment you start implementing — if you cannot, the gate is not cleared:
 
+- [ ] `/convention:check` found the existing utilities/patterns to reuse, and
+      they are written into the plan file.
 - [ ] `/plan:dry <plan-file>` adjusted that file and completed its Ponytail pass.
 - [ ] `/plan:dry-checked <plan-file>` reloaded the same adjusted plan.
-- [ ] `/convention:check` found the existing utilities/patterns to reuse.
 
 The gate survives the `implement` step: if mid-implementation you add a new
 helper, type, or pattern the gate would have caught, stop and re-clear it
@@ -667,7 +679,7 @@ the user whether they want it before wiring it into that project's `CODING_RULES
   into a project's `CODING_RULES.md`.
 
 # Version
-5
+6
 
 Increase this version number whenever this rule file changes.
 
@@ -805,13 +817,10 @@ place, so an option can never be shown without a handler:
 ```py
 options: list[str] = []
 actions: list[MenuAction] = []
-options.append("Commit")
-actions.append(MenuAction.COMMIT)
+options.append("Commit"); actions.append(MenuAction.COMMIT)
 if repo.has_untracked:
-    options.append("Add all")
-    actions.append(MenuAction.ADD_ALL)
-options.append("Cancel")
-actions.append(MenuAction.CANCEL)
+    options.append("Add all"); actions.append(MenuAction.ADD_ALL)
+options.append("Cancel"); actions.append(MenuAction.CANCEL)
 
 action = actions[show_menu(options, title)]
 ```
@@ -919,7 +928,6 @@ from pathlib import Path
 # Adjust import to the real package name of your library
 # from python_localization import Localization
 
-
 class Container:
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
@@ -978,7 +986,6 @@ Where you configure Jinja2:
 # app/web/templates.py
 from jinja2 import Environment, FileSystemLoader
 from app.i18n.keys import TK
-
 
 def create_env(localization, templates_dir: str) -> Environment:
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=True)
@@ -1092,7 +1099,6 @@ Usage in controllers:
 
 ```py
 from app.i18n.keys import TK
-
 self.add_flash("success", self.t(TK.FLASH_SUCCESS_SAVED))
 ```
 
@@ -1226,7 +1232,7 @@ Conventions:
 
 - **Two separate bats, no chaining.** `tools/compile_exe.bat` freezes;
   `tools/build_installer.bat` packages and fails with "run compile_exe.bat first" if
-  `dist/` is missing. Build bats end in `pause`, so one cannot call the other.
+  `dist/` is missing. Neither bat calls the other.
 - **Version and build reach the installer as `/D` defines** from the bat
   (`/DVERSION= /DBUILD= /DSRCDIR= /DOUTFILE=`), never via the exe's version resource.
   A bare PyInstaller CLI build has no `--version-file`, so there is no resource to
@@ -1316,7 +1322,6 @@ No “magic values” in code. Use a single settings module with env overrides.
 from dataclasses import dataclass
 import os
 
-
 @dataclass(frozen=True)
 class Settings:
     env: str = os.getenv("APP_ENV", "dev")
@@ -1359,7 +1364,7 @@ If a database is needed, use SQLAlchemy ORM (not raw SQL or ad-hoc drivers).
 # BAD - No interface validation
 mock = MagicMock()
 mock.nonexistent_attribute = "test"  # Silently works
-mock.typo_method()  # Also works - won't catch bugs!
+mock.typo_method()                   # Also works - won't catch bugs!
 ```
 
 **Always use `spec=ClassName`** to validate against the real interface:
@@ -1382,7 +1387,6 @@ If the real class has a **method**, mock it as a method:
 class EmailMessage:
     def get_body(self) -> str:
         return "content"
-
 
 # WRONG - Creates fake attribute that doesn't exist
 mock = MagicMock()
@@ -1409,7 +1413,6 @@ mock_obj.method_name.side_effect = ValueError("error")
 
 # Mock property (use PropertyMock)
 from unittest.mock import PropertyMock
-
 type(mock_obj).prop_name = PropertyMock(return_value="value")
 
 # Patch with spec
@@ -1499,3 +1502,94 @@ def get_searchable_values(obj: object) -> list[str]:
 
 Prefer the Protocol approach for simple cases. Use dataclass metadata when you need declarative
 per-field control without writing boilerplate methods.
+
+# Version
+11
+
+Increase this version number whenever this rule file changes.
+
+# graphify Knowledge Graph (Optional Addon)
+<!-- tailored -->
+
+graphify turns a code folder into a queryable knowledge graph — god nodes, communities,
+cross-file relationships, fan-in/fan-out. Use it to orient before grep and to spot god classes.
+
+**This project's `<code-dir>` is `src/`.** Every build is
+`/graphify src/ --directed` from the repo root, writing to the root `graphify-out/`.
+Never build the repo root: a code-dir-scoped build is AST-only (free, no LLM), while a
+root build sweeps in `docs/`, `README.md` and other non-code files and forces the paid
+LLM pass. There is no in-tree vendored code under `src/`, so no `.graphifyignore` is needed.
+
+---
+
+## Using the graph
+
+- For codebase questions, run `graphify query "<question>"` first when `graphify-out/graph.json`
+  exists. `graphify path "<A>" "<B>"` for relationships; `graphify explain "<concept>"` for a
+  focused node. These return a small scoped subgraph vs. reading GRAPH_REPORT.md or raw grep.
+- Judge coupling by direction: high **fan-in** + low fan-out (shared base / constants / DTO) is
+  healthy; high **fan-out** (>~20 outgoing deps) is god-class risk and a refactor signal.
+- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review, or when
+  query/path/explain do not surface enough context.
+
+## Folder layout (know which is which)
+
+- `graphify-out/` at the **project root** = the **live graph** (`graph.json`, `GRAPH_REPORT.md`,
+  `graph.html`). The only one queries read. Keep it `directed=True`.
+- `src/graphify-out/` = **AST cache only** (`cache/`). Scratch that speeds re-extraction.
+  Never the live graph. Do not query it.
+
+## Delegated checks (Codex / DeepSeek)
+
+This project delegates the plan/DRY/convention checks to Codex (see the AI workflow rules'
+"Delegation backends"). Prepend this **graphify delegate preamble** to the `<PROMPT>` before
+sending it to the backend:
+
+```
+Graphify: this project has a graphify knowledge graph, built at the repo-root
+`graphify-out/graph.json`. Run all graphify commands FROM THE REPO ROOT (the
+graph is resolved relative to the current directory). For any codebase question,
+run `graphify query "<question>"` first (also `graphify path "<A>" "<B>"`,
+`graphify explain "<concept>"`) instead of raw grep.
+```
+
+Prepend only — do not otherwise change the `<PROMPT>`. The cwd line matters:
+`codex exec` inherits the caller's directory, and `graphify query` reads `graphify-out/`
+relative to cwd — run from a subdir and it finds nothing, silently degrading to grep.
+Harmless if the graph is not built yet: `graphify query` returns nothing and the CLI falls
+back to reading files.
+
+## Refreshing after a code change
+
+- After a feature or any code change, rebuild via the **directed skill flow**: re-run
+  `/graphify src/ --directed` from the repo root, writing to the project-root `graphify-out/`.
+- Do NOT use the bare `graphify update src` CLI — it has no `--directed` flag and writes a
+  full UNDIRECTED graph into `src/graphify-out/` (wrong location), desyncing the live graph.
+  If that stray graph appears, delete `src/graphify-out/graph.json` (keep `cache/`).
+- **Rebuild at the scope the existing graph already has**, not narrower. Check it first: group
+  `graphify-out/graph.json` nodes by the first path segment of their `source_file`. A graph
+  built from a wider scope holds `docs/` and root `*.md` nodes — the ones that answer "how does
+  X work" rather than "where is X defined" — and a narrower rebuild deletes every one of them.
+  graphify's shrink guard catches that and refuses the write: re-run at the original scope,
+  never force past it.
+- **Confirm `.graphify_root` after every rebuild.** The scan root lives in
+  `graphify-out/.graphify_root`, and EVERY `/graphify <path>` run overwrites it. One wrong-path
+  invocation leaves it pointing at a subtree the graph was not built from, and a later bare
+  `graphify update` rescans only that subtree and reads every file outside it as deleted. It
+  cannot be committed (absolute path, and `graphify-out/` is gitignored) — the intended scan
+  root is recorded in `CLAUDE.md`.
+- Verify after rebuild: `graph.json` has `directed: true` and lives in root `graphify-out/`.
+
+## Manual test bat (`tools/graphify_update.bat`)
+
+A no-AI convenience for manually checking graphify works (`CODE_DIR=src`).
+Run it from anywhere — it `pushd`es to the repo root itself.
+
+- **Does:** (1) code-only AST refresh (`graphify update`, no LLM/API cost);
+  (2) smoke-tests the live root graph — `god-nodes` + a sample `query`. Proves the interpreter
+  resolves, the graph is present and directed, and queries answer.
+- **Does NOT:** rebuild the live root `graphify-out/graph.json`. `graphify update` writes only
+  the AST cache under `src/graphify-out/`. The authoritative **directed** rebuild is the agent
+  skill flow (`/graphify src/ --directed`) — a `.bat` cannot run it.
+- **When to use:** quick "is graphify still wired up?" check after cloning, a dependency change,
+  or a graphify upgrade. For an actual refresh of the graph the queries read, use the skill flow.
