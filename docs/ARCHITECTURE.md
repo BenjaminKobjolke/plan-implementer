@@ -31,7 +31,7 @@ the contract below. **When they change, this tool has to follow** — that alrea
 | Phases are `NN-*.md` directly in the folder, ordered by `NN` | `plan_folder.phases` |
 | `00-context.md` is context, never a phase | `constants.CONTEXT_FILE_NAME` |
 | Coding-rules workflow output (`*-changed-files.md`, `*-post-implementation-check.md`) is not a phase, despite matching `NN-*.md` | `constants.WORKFLOW_ARTIFACT_SUFFIXES` |
-| A finished phase moves to `<repo>/plan/done/<folder-name>/` | `plan_folder.done_root`, `mark_done` |
+| A finished phase and its `<stem>-*` sidecars (reports, delegate logs) move to `<repo>/plan/done/<folder-name>/` | `plan_folder.done_root`, `mark_done` |
 | An existing destination is never overwritten | `mark_done`, `archive` |
 | When no phase remains, the leftovers follow and the emptied folder is removed | `plan_folder.archive` |
 

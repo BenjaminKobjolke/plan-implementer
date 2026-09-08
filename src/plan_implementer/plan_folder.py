@@ -57,16 +57,29 @@ def done_root(folder: PlanFolder) -> Path:
 
 
 def mark_done(folder: PlanFolder, phase: Phase) -> Path:
-    """Move a finished phase file next to its plan's other finished phases."""
+    """Move a finished phase file and its sidecars next to the other finished phases."""
     destination_dir = done_root(folder)
     destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = destination_dir / phase.name
 
-    if destination.exists():
-        raise OperationalError(f"Destination already exists, not overwriting: {destination}")
+    for source in (phase.path, *_sidecars(folder, phase)):
+        destination = destination_dir / source.name
+        if destination.exists():
+            raise OperationalError(f"Destination already exists, not overwriting: {destination}")
+        shutil.move(str(source), str(destination))
 
-    shutil.move(str(phase.path), str(destination))
-    return destination
+    return destination_dir / phase.name
+
+
+def _sidecars(folder: PlanFolder, phase: Phase) -> list[Path]:
+    """The workflow output written next to a phase: reports and delegate logs named `<stem>-*`.
+
+    Matched by prefix rather than by `WORKFLOW_ARTIFACT_SUFFIXES` so the delegate logs travel
+    with their phase too. Phase numbers are unique, so the prefix cannot catch another phase.
+    """
+    prefix = f"{phase.path.stem}-"
+    return sorted(
+        path for path in folder.path.iterdir() if path.is_file() and path.name.startswith(prefix)
+    )
 
 
 def archive(folder: PlanFolder) -> Path | None:

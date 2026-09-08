@@ -94,6 +94,23 @@ def test_mark_done_moves_the_phase_into_plan_done(plan_repo: Path) -> None:
     assert not phase.path.exists()
 
 
+def test_mark_done_takes_the_phase_sidecars_along(plan_repo: Path) -> None:
+    folder = plan_folder.resolve(plan_repo / "plan" / "demo")
+    phase = plan_folder.phases(folder)[0]
+    sidecars = ["01-step-1-changed-files.md", "01-step-1-post-impl-delegate.log"]
+    for name in sidecars:
+        (folder.path / name).write_text("workflow output", encoding="utf-8")
+
+    plan_folder.mark_done(folder, phase)
+
+    done_dir = plan_repo / "plan" / "done" / "demo"
+    for name in sidecars:
+        assert (done_dir / name).exists()
+        assert not (folder.path / name).exists()
+    # The next phase and its own files must stay put.
+    assert (folder.path / "02-step-2.md").exists()
+
+
 def test_mark_done_refuses_to_overwrite(plan_repo: Path) -> None:
     folder = plan_folder.resolve(plan_repo / "plan" / "demo")
     phase = plan_folder.phases(folder)[0]
