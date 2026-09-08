@@ -26,6 +26,7 @@ sequentially, one fresh headless Claude Code process per phase. See `README.md` 
 | Command | Purpose |
 |---|---|
 | `install.bat` | `uv sync --all-extras`, then the test suite |
+| `install-skills.bat` | Download the external slash commands into `~/.claude/commands` |
 | `start.bat <plan-folder> [flags]` | Run the CLI (`uv run plan-implementer`) |
 | `tools\run_tests.bat` | Unit tests (`tests/unit`) |
 | `tools\run_integration_tests.bat` | Integration tests (`tests/integration`) |
@@ -37,8 +38,8 @@ sequentially, one fresh headless Claude Code process per phase. See `README.md` 
 `src/plan_implementer/` — flat modules, one responsibility each: `plan_folder` (resolve the
 folder, order phases, `done/` moves, archive), `project_detect` (marker files →
 `config/project_types.json` → verify commands), `prompt_builder`, `claude_runner` (+
-`tool_summary`) for the `stream-json` layer, `committer`, `runner`, `cli`. All console output
-goes through `app_logger.AppLogger`.
+`tool_summary`) for the `stream-json` layer, `committer`, `runner`, `cli`, `skill_installer`. All
+console output goes through `app_logger.AppLogger`.
 
 ## Documentation
 

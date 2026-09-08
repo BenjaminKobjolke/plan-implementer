@@ -92,6 +92,7 @@ implemented and the phase file *was* moved — only the commit is missing.
 | `constants.py` | Every literal file name, pattern, environment variable and default |
 | `errors.py` | `ConfigurationError` (exit 2) and `OperationalError` |
 | `app_logger.py` | `AppLogger` — the only module that writes to the console |
+| `skill_installer.py` | Download the slash commands this tool expects into `~/.claude/commands` (`install-skills.bat`) |
 
 `ClaudeRun` (a `Protocol` in `claude_runner.py`) is the single seam: `PhaseRunner` and
 `Committer` both take it, so a test can substitute the whole Claude interaction with
@@ -132,7 +133,8 @@ so console output has one off switch.
 
 - `tests/unit/` — plan folder bookkeeping, detection (a parametrized table driven by the real
   `config/project_types.json`, so it cannot drift), commit dispatch, stream parsing from canned
-  events, prompt content, settings resolution.
+  events, prompt content, settings resolution, slash command installation (with an injected downloader,
+  so no test touches the network).
 - `tests/integration/` — a full run against a fake `claude` batch stub emitting canned
   `stream-json`: phases land in `plan/done/<folder-name>/`, the commit spec runs once per phase,
   the folder is archived; a failing run moves and commits nothing; `--dry-run` changes nothing.

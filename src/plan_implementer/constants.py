@@ -9,10 +9,24 @@ DEFAULT_PROJECT_TYPES_CONFIG: Final[Path] = PROJECT_ROOT / "config" / "project_t
 DEFAULT_SETTINGS_FILE: Final[Path] = PROJECT_ROOT / "settings.json"
 
 ENV_SETTINGS: Final[str] = "PLAN_IMPLEMENTER_SETTINGS"
+ENV_COMMANDS_DIR: Final[str] = "PLAN_IMPLEMENTER_COMMANDS_DIR"
 ENV_PROJECT_TYPES: Final[str] = "PLAN_IMPLEMENTER_PROJECT_TYPES"
 ENV_COMMIT: Final[str] = "PLAN_IMPLEMENTER_COMMIT"
 ENV_PERMISSION_MODE: Final[str] = "PLAN_IMPLEMENTER_PERMISSION_MODE"
 ENV_CLAUDE_EXECUTABLE: Final[str] = "PLAN_IMPLEMENTER_CLAUDE"
+
+# The slash commands this tool assumes exist in the target repository. They are maintained in
+# a separate repository, so `install-skills.bat` downloads them instead of vendoring copies.
+COMMANDS_RAW_BASE: Final[str] = (
+    "https://raw.githubusercontent.com/BenjaminKobjolke/claude-code/main/commands/"
+)
+INSTALLED_COMMANDS: Final[tuple[str, ...]] = (
+    "plan/multi-step.md",
+    "plan/implement-phase.md",
+    "git/commit.md",
+)
+CLAUDE_COMMANDS_DIR: Final[Path] = Path.home() / ".claude" / "commands"
+DOWNLOAD_TIMEOUT_SECONDS: Final[int] = 30
 
 CONTEXT_FILE_NAME: Final[str] = "00-context.md"
 ORIGINAL_FILE_NAME: Final[str] = "original.md"

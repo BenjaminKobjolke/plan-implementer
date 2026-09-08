@@ -2,7 +2,7 @@
 
 Implements a multi-step plan folder's phases sequentially with headless Claude Code.
 
-`/plan:multi-step` writes a plan as ordered phase files:
+The [`/plan:multi-step`](#slash-commands) slash command writes a plan as ordered phase files:
 
 ```
 <repo>/plan/YYYYMMDD_<feature-name>/
@@ -39,6 +39,31 @@ Then copy the settings template and edit it:
 ```
 copy settings.example.json settings.json
 ```
+
+## Slash commands
+
+The plan folders this tool implements are written by Claude Code slash commands that live in a
+separate repository, [BenjaminKobjolke/claude-code](https://github.com/BenjaminKobjolke/claude-code),
+not in this one. `install-skills.bat` downloads the current version of the ones this tool relies on
+into `%USERPROFILE%\.claude\commands\`, where they are available in every repository:
+
+| Command | Role |
+|---|---|
+| `/plan:multi-step` | writes the `plan/<feature>/` folder this tool implements |
+| `/plan:implement-phase` | the manual per-phase workflow this tool automates |
+| `/git:commit` | the default `commit` spec in `settings.example.json` |
+
+```
+install-skills.bat
+```
+
+`/git:commit` also needs the global permissions its own `/git:setup` command grants. If
+`%USERPROFILE%\.claude\commands` is a symlink into a checkout of that repository, the installer
+leaves it alone — `git pull` there instead. Set `PLAN_IMPLEMENTER_COMMANDS_DIR` to install
+somewhere else.
+
+None of this is mandatory: any plan folder matching the layout above works, and `commit` accepts a
+plain shell command instead of a slash command.
 
 ## Usage
 
