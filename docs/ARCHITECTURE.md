@@ -30,6 +30,7 @@ the contract below. **When they change, this tool has to follow** — that alrea
 | Rule | Where |
 |---|---|
 | A folder is a plan folder when it holds `00-context.md` | `plan_folder.resolve` |
+| A folder without one stands for every immediate subfolder that has one, in name order | `plan_folder.resolve_all` |
 | Phases are `NN-*.md` directly in the folder, ordered by `NN` | `plan_folder.phases` |
 | `00-context.md` is context, never a phase | `constants.CONTEXT_FILE_NAME` |
 | Coding-rules workflow output (`*-changed-files.md`, `*-post-implementation-check.md`) is not a phase, despite matching `NN-*.md` | `constants.WORKFLOW_ARTIFACT_SUFFIXES` |
@@ -57,20 +58,25 @@ repo-relative, so the root has to be right:
 
 ```
 cli.main
-  Settings.load                 settings.json + environment overrides
-  plan_folder.resolve           plan folder, repo root, context file
-  plan_folder.phases            remaining phases in NN order (or one, via --phase)
-  project_detect.detect         marker files -> stack -> verify commands
-  --dry-run ? render and exit
-  PhaseRunner.run(phases)
-    for each phase:
-      prompt_builder.build_phase_prompt
-      ClaudeRunner.run          one fresh `claude -p` process, cwd = repo root
-      failed  -> report, do NOT move, do NOT commit, stop (unless --continue-on-failure)
-      ok      -> plan_folder.mark_done
-                 Committer.commit
-    plan_folder.archive         only when every phase succeeded
-  run_report.write              REPORT.md in done/, ERROR.md in the plan folder on failure
+  Settings.load                   settings.json + environment overrides
+  plan_folder.resolve_all         one plan folder, or every plan subfolder of a plan/ parent
+  project_detect.load_config      the stack table, read once for the whole run
+  for each plan folder:
+    plan_folder.phases            remaining phases in NN order (or one, via --phase)
+                                  --phase absent here -> skip the folder (multi-folder runs only)
+    project_detect.detect         marker files -> stack -> verify commands
+    --dry-run ? render and continue
+    ClaudeRunner                  a fresh one per folder: REPORT.md lists only its own sessions
+    PhaseRunner.run(phases)
+      for each phase:
+        prompt_builder.build_phase_prompt
+        ClaudeRunner.run          one fresh `claude -p` process, cwd = repo root
+        failed  -> report, do NOT move, do NOT commit, stop (unless --continue-on-failure)
+        ok      -> plan_folder.mark_done
+                   Committer.commit
+      plan_folder.archive         only when every phase succeeded
+    run_report.write              REPORT.md in done/, ERROR.md in the plan folder on failure
+    failed folder -> stop, unless --continue-on-failure
 ```
 
 Every phase gets a **new** Claude process (`--no-session-persistence`); nothing carries over
@@ -84,9 +90,9 @@ implemented and the phase file *was* moved — only the commit is missing.
 
 | Module | Responsibility |
 |---|---|
-| `cli.py` | Argument parsing, wiring, dry-run rendering, exit codes |
+| `cli.py` | Argument parsing, wiring, the loop over the resolved plan folders, dry-run rendering, exit codes |
 | `runner.py` | `PhaseRunner` — the sequential loop and its `RunContext`; owns all success/failure bookkeeping |
-| `plan_folder.py` | Resolve the folder and repo root, order phases, `done/` moves, archive, repo-relative path rendering |
+| `plan_folder.py` | Resolve the folder (or every plan subfolder of a `plan/` parent) and its repo root, order phases, `done/` moves, archive, repo-relative path rendering |
 | `project_detect.py` | Validate `config/project_types.json`, match markers, resolve verify commands |
 | `prompt_builder.py` | Render the per-phase prompt |
 | `claude_runner.py` | `ClaudeRunner` (process) and `ClaudeStream` (stream-json parsing) |
@@ -151,13 +157,14 @@ report is reached.
 
 ## Tests
 
-- `tests/unit/` — plan folder bookkeeping, detection (a parametrized table driven by the real
+- `tests/unit/` — plan folder resolution (single folder and `plan/` parent) and bookkeeping, detection (a parametrized table driven by the real
   `config/project_types.json`, so it cannot drift), commit dispatch, stream parsing from canned
   events, prompt content, settings resolution, slash command installation (with an injected downloader,
   so no test touches the network).
 - `tests/integration/` — a full run against a fake `claude` batch stub emitting canned
   `stream-json`: phases land in `plan/done/<folder-name>/`, the commit spec runs once per phase,
-  the folder is archived, `REPORT.md` lands next to them; a failing run moves and commits nothing
+  the folder is archived, `REPORT.md` lands next to them; a run pointed at the `plan/` parent does
+  that for every plan subfolder, each with its own report; a failing run moves and commits nothing
   but still leaves `ERROR.md` and a report; `--dry-run` changes nothing.
   Windows-only (the stub is a `.bat`).
 

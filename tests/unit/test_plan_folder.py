@@ -159,3 +159,53 @@ def test_archive_is_a_no_op_while_phases_remain(plan_repo: Path) -> None:
 
     assert plan_folder.archive(folder) is None
     assert folder.path.exists()
+
+
+def test_resolve_all_returns_the_single_folder_it_was_pointed_at(plan_repo: Path) -> None:
+    folders = plan_folder.resolve_all(plan_repo / "plan" / "demo")
+
+    assert [folder.feature_name for folder in folders] == ["demo"]
+    assert folders[0].repo_root == plan_repo
+
+
+def test_resolve_all_finds_every_plan_subfolder_of_a_plan_parent(tmp_path: Path) -> None:
+    make_plan_repo(tmp_path, feature="20260908_second")
+    make_plan_repo(tmp_path, feature="20260101_first")
+
+    folders = plan_folder.resolve_all(tmp_path / "plan")
+
+    assert [folder.feature_name for folder in folders] == ["20260101_first", "20260908_second"]
+    assert {folder.repo_root for folder in folders} == {tmp_path}
+
+
+def test_resolve_all_ignores_subfolders_without_a_context_file(tmp_path: Path) -> None:
+    make_plan_repo(tmp_path)
+    # The `done/` archive keeps its contexts one level deeper, so it never qualifies.
+    (tmp_path / "plan" / "done" / "older").mkdir(parents=True)
+    (tmp_path / "plan" / "done" / "older" / "00-context.md").write_text("x", encoding="utf-8")
+    (tmp_path / "plan" / "scratch").mkdir()
+
+    folders = plan_folder.resolve_all(tmp_path / "plan")
+
+    assert [folder.feature_name for folder in folders] == ["demo"]
+
+
+def test_resolve_all_prefers_the_folder_itself_over_its_subfolders(tmp_path: Path) -> None:
+    make_plan_repo(tmp_path, feature="outer")
+    make_plan_repo(tmp_path / "plan" / "outer", feature="inner")
+
+    folders = plan_folder.resolve_all(tmp_path / "plan" / "outer")
+
+    assert [folder.feature_name for folder in folders] == ["outer"]
+
+
+def test_resolve_all_without_any_plan_folder_is_configuration_error(tmp_path: Path) -> None:
+    (tmp_path / "plan" / "scratch").mkdir(parents=True)
+
+    with pytest.raises(ConfigurationError, match=r"00-context\.md"):
+        plan_folder.resolve_all(tmp_path / "plan")
+
+
+def test_resolve_all_requires_an_existing_folder(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="does not exist"):
+        plan_folder.resolve_all(tmp_path / "nope")

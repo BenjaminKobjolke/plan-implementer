@@ -126,3 +126,30 @@ def test_console_script_is_installed() -> None:
 
     assert result.returncode == 0
     assert "--dry-run" in result.stdout
+
+
+def test_plan_parent_folder_implements_every_subfolder(
+    tmp_path: Path, fake_claude: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    make_plan_repo(repo, feature="20260908_second", phase_count=1)
+    make_plan_repo(repo, feature="20260101_first", phase_count=1)
+    (repo / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.setenv(ENV_CLAUDE_EXECUTABLE, str(fake_claude))
+    monkeypatch.setenv(ENV_COMMIT, "")
+
+    exit_code = run_cli(str(repo / "plan"))
+
+    assert exit_code == 0
+    done = repo / "plan" / "done"
+    for feature in ("20260101_first", "20260908_second"):
+        assert sorted(p.name for p in (done / feature).iterdir()) == [
+            "00-context.md",
+            "01-step-1.md",
+            "REPORT.md",
+        ]
+        assert not (repo / "plan" / feature).exists()
+        # Each folder gets its own report, listing only its own single session.
+        report = (done / feature / "REPORT.md").read_text(encoding="utf-8")
+        assert f"# Implementation Report — {feature}" in report
+        assert "| Claude sessions | 1 |" in report

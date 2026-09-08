@@ -29,6 +29,29 @@ def resolve(plan_path: Path, project_override: Path | None = None) -> PlanFolder
     return PlanFolder(path=folder, repo_root=repo_root, context_path=context_path)
 
 
+def resolve_all(plan_path: Path, project_override: Path | None = None) -> list[PlanFolder]:
+    """One plan folder, or every plan subfolder of a `plan/` parent, in name order.
+
+    `done/` needs no special case: its archived contexts sit one level deeper, so it never
+    qualifies as a plan folder itself.
+    """
+    folder = plan_path.resolve()
+    if not folder.is_dir():
+        raise ConfigurationError(f"Plan folder does not exist: {folder}")
+
+    if (folder / CONTEXT_FILE_NAME).is_file():
+        return [resolve(folder, project_override)]
+
+    nested = sorted(
+        path for path in folder.iterdir() if path.is_dir() and (path / CONTEXT_FILE_NAME).is_file()
+    )
+    if not nested:
+        raise ConfigurationError(
+            f"No {CONTEXT_FILE_NAME} in {folder} and no subfolder holding one."
+        )
+    return [resolve(path, project_override) for path in nested]
+
+
 def phases(folder: PlanFolder, only: str | None = None) -> list[Phase]:
     """Remaining phases in `NN` order; `only` selects a single one by its prefix."""
     found = [

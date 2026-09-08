@@ -71,14 +71,23 @@ plain shell command instead of a slash command.
 start.bat D:\GIT\BenjaminKobjolke\tickets-watcher\plan\tickets-watcher
 ```
 
+The argument is either one plan folder or the `plan/` parent. Pointed at a `plan/` that holds no
+`00-context.md` of its own, every immediate subfolder that has one is implemented in turn, sorted
+by folder name — so the `YYYYMMDD_` prefix decides the order. Each keeps its own
+`plan/done/<feature>/` archive and `REPORT.md`:
+
+```
+start.bat D:\wamp64\www\tickets-api\plan
+```
+
 | Flag | Meaning |
 |---|---|
 | `--dry-run` | Show the resolved repository, project type, checks and phases, then exit |
-| `--phase NN` | Implement only that phase (e.g. `--phase 03`) instead of every remaining one |
+| `--phase NN` | Implement only that phase (e.g. `--phase 03`) instead of every remaining one; with several plan folders it applies to each, skipping the ones that no longer have it |
 | `--project PATH` | Repository root, when it cannot be derived from the plan folder path |
 | `--commit SPEC` | Commit spec for this run (see below), overriding `settings.json` |
 | `--no-commit` | Do not commit after a phase |
-| `--continue-on-failure` | Keep going after a failed phase instead of stopping |
+| `--continue-on-failure` | Keep going after a failed phase (and after a failed plan folder) instead of stopping |
 
 The repository root is `<repo>/plan/<feature>` by convention; otherwise the nearest `.git`
 ancestor is used, and failing that `--project` is required.

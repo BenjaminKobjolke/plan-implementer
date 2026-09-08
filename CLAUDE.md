@@ -36,7 +36,7 @@ sequentially, one fresh headless Claude Code process per phase. See `README.md` 
 ## Layout
 
 `src/plan_implementer/` — flat modules, one responsibility each: `plan_folder` (resolve the
-folder, order phases, `done/` moves, archive), `project_detect` (marker files →
+folder — or every plan subfolder of a `plan/` parent — order phases, `done/` moves, archive), `project_detect` (marker files →
 `config/project_types.json` → verify commands), `prompt_builder`, `claude_runner` (+
 `tool_summary`) for the `stream-json` layer, `committer`, `runner`, `cli`, `skill_installer`. All
 console output goes through `app_logger.AppLogger`.

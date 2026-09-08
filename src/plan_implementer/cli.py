@@ -8,7 +8,7 @@ from plan_implementer import plan_folder, project_detect, run_report
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRunner
 from plan_implementer.committer import Committer
-from plan_implementer.errors import PlanImplementerError
+from plan_implementer.errors import ConfigurationError, PlanImplementerError
 from plan_implementer.models import Phase, PlanFolder, ProjectType
 from plan_implementer.runner import PhaseRunner, RunContext
 from plan_implementer.settings import Settings
@@ -35,25 +35,60 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run(arguments: argparse.Namespace, logger: AppLogger) -> int:
     settings = Settings.load()
-    folder = plan_folder.resolve(Path(arguments.plan_folder), arguments.project)
-    phases = plan_folder.phases(folder, arguments.phase)
-    project_type = project_detect.detect(
-        folder.repo_root, project_detect.load_config(settings.project_types_config)
-    )
-
-    if not phases:
-        logger.info(f"No phases left in {folder.path}")
-        archived = plan_folder.archive(folder)
-        if archived is not None:
-            logger.info(f"Plan complete - archived to {archived}")
-        return EXIT_OK
-
+    folders = plan_folder.resolve_all(Path(arguments.plan_folder), arguments.project)
+    config = project_detect.load_config(settings.project_types_config)
     commit_spec = "" if arguments.no_commit else (arguments.commit or settings.commit)
 
-    if arguments.dry_run:
-        _render_dry_run(folder, phases, project_type, commit_spec, logger)
-        return EXIT_OK
+    if len(folders) > 1:
+        logger.info(f"{len(folders)} plan folders: {', '.join(f.feature_name for f in folders)}")
 
+    exit_code = EXIT_OK
+    for folder in folders:
+        try:
+            phases = plan_folder.phases(folder, arguments.phase)
+        except ConfigurationError:
+            # `--phase NN` naming a phase this folder no longer has: skip it rather than abort
+            # the whole run. A single folder keeps the explicit error.
+            if len(folders) == 1:
+                raise
+            logger.info(f"No phase {arguments.phase} left in {folder.path} - skipped")
+            continue
+
+        project_type = project_detect.detect(folder.repo_root, config)
+
+        if not phases:
+            logger.info(f"No phases left in {folder.path}")
+            archived = plan_folder.archive(folder)
+            if archived is not None:
+                logger.info(f"Plan complete - archived to {archived}")
+            continue
+
+        if arguments.dry_run:
+            _render_dry_run(folder, phases, project_type, commit_spec, logger)
+            continue
+
+        if _implement(folder, phases, project_type, commit_spec, arguments, settings, logger):
+            continue
+
+        exit_code = EXIT_FAILED_PHASE
+        if not arguments.continue_on_failure:
+            break
+
+    return exit_code
+
+
+def _implement(
+    folder: PlanFolder,
+    phases: Sequence[Phase],
+    project_type: ProjectType,
+    commit_spec: str,
+    arguments: argparse.Namespace,
+    settings: Settings,
+    logger: AppLogger,
+) -> bool:
+    """Implement one plan folder; `True` when every phase succeeded."""
+    # A fresh runner per folder: `sessions` is cumulative, and each folder's REPORT.md must list
+    # only its own sessions.
     claude = ClaudeRunner(logger, settings.permission_mode)
     runner = PhaseRunner(
         RunContext(
@@ -67,7 +102,7 @@ def _run(arguments: argparse.Namespace, logger: AppLogger) -> int:
     )
     summary = runner.run(phases)
     run_report.write(folder, summary, claude.sessions, logger)
-    return EXIT_FAILED_PHASE if summary.failed else EXIT_OK
+    return not summary.failed
 
 
 def _render_dry_run(
@@ -99,7 +134,13 @@ def _parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
             "(plan/<feature>/) sequentially with headless Claude Code."
         ),
     )
-    parser.add_argument("plan_folder", help="Path to plan/<feature>/ containing 00-context.md")
+    parser.add_argument(
+        "plan_folder",
+        help=(
+            "Path to plan/<feature>/ containing 00-context.md, or the plan/ parent "
+            "to implement every plan subfolder in name order"
+        ),
+    )
     parser.add_argument(
         "--project",
         type=Path,
@@ -110,7 +151,10 @@ def _parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
         "--phase",
         default=None,
         metavar="NN",
-        help="Implement only this phase (e.g. 03) instead of every remaining one",
+        help=(
+            "Implement only this phase (e.g. 03) instead of every remaining one; "
+            "with several plan folders it applies to each of them"
+        ),
     )
     parser.add_argument(
         "--commit",
