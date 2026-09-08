@@ -436,7 +436,7 @@ the wrong side of **No God Classes**.
   fields.
 
 # Version
-20
+22
 
 Increase this version number whenever this rule file changes.
 
