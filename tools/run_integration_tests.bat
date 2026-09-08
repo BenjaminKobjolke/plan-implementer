@@ -9,7 +9,6 @@ where uv >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo ERROR: uv is not installed or not in PATH
     echo Please install uv first: https://docs.astral.sh/uv/getting-started/installation/
-    pause
     exit /b 1
 )
 
@@ -28,4 +27,3 @@ if %ERRORLEVEL% neq 0 (
     echo ========================================
 )
 echo.
-pause
