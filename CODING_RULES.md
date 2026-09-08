@@ -510,7 +510,7 @@ rules make that impossible and leave a debug trail when it happens anyway.
 
 - **Log.** Capture stdout+stderr to a log next to the plan file, named
   `<plan-file-path-without-.md>-<step>-delegate.log` where `<step>` is
-  `plan-dry`, `convention`, `post-impl` or `graphify`; close stdin so a
+  `plan-dry`, `convention` or `post-impl`; close stdin so a
   delegate that ignores the contract dies instead of blocking:
 
   ```
@@ -521,8 +521,8 @@ rules make that impossible and leave a debug trail when it happens anyway.
   in one line — that is the debug handle.
 
 - **Success check.** A delegated step counts as done only if its required
-  SUMMARY block is present (`SUMMARY DRY`, `SUMMARY CONVENTION CHECK`,
-  `SUMMARY GRAPHIFY`, or the post-implementation check file). A permission
+  SUMMARY block is present (`SUMMARY DRY`, `SUMMARY CONVENTION CHECK`, or the
+  post-implementation check file). A permission
   block/denial, timeout, non-zero exit, missing SUMMARY, or a
   `## DELEGATE QUESTIONS` heading all count as failure. Never retry a failed
   delegate call. How to handle the failure depends on its kind:
@@ -552,7 +552,8 @@ rules make that impossible and leave a debug trail when it happens anyway.
   or surface them to the user if they need a decision.
 
 These rules apply to EVERY delegated step below — the plan DRY + convention
-check, the post-implementation DRY audit and the graphify refresh.
+check and the post-implementation DRY audit. (The graphify refresh is a plain
+CLI call, never delegated.)
 
 ## Feature / Change Workflow
 
@@ -603,20 +604,42 @@ post-implementation DRY audit — scope is ONLY the changed-files file above
 Post-Feature Verification + Post-Implementation Code Analysis (project-specific, below)
 
 refresh graphify graph — only if the graphify addon is present in this project's CODING_RULES.md
-  NEVER run this rebuild yourself in the main context: the graphify skill loads a
-  large instruction file and its build output into the window. Delegate it — the
-  rules it must follow live in the graphify addon's "Refreshing after a code
-  change" section, already copied into this project's CODING_RULES.md.
-  delegate enabled (codex or deepseek — run <PROMPT> via that backend's CLI, see Delegation backends above; prepend graphify preamble if applicable; obey the Delegation contract — no-questions suffix, timeout, log, SUMMARY check):
-    <PROMPT> = "Rebuild this project's graphify knowledge graph. Read the graphify section of CODING_RULES.md and follow its 'Refreshing after a code change' rules exactly, including the scope rules — rebuild at the scope the existing graph already has, never narrower. Run the graphify skill's directed rebuild from the repo root (/graphify <code-dir> --directed), writing to the root graphify-out/. Do NOT run a bare `graphify update`. If the graphify skill is not available to you, change nothing and reply exactly GRAPHIFY SKILL UNAVAILABLE. Otherwise end with a summary called SUMMARY GRAPHIFY stating the scan root built, whether graph.json has directed: true, and the node count before and after."
-  delegate disabled:
-    run the same rebuild in a subagent (see "Self-fallback in a subagent") with the
-    same instructions; it returns only the SUMMARY GRAPHIFY block.
-  then verify yourself — cheap, no skill load: root `graphify-out/graph.json` has
-  `directed: true`, and `graphify-out/.graphify_root` matches the scope that was
-  built. If the delegate replied GRAPHIFY SKILL UNAVAILABLE, or either check fails,
-  redo the rebuild via the subagent branch.
+  A seconds-long, no-LLM CLI call. Run it YOURSELF via Bash from the repo root — no
+  delegate, no subagent, no graphify skill load. <code-dir> is the scan root pinned in
+  the project's CODING_RULES.md / CLAUDE.md (one call per dir for multi-path graphs):
+    GRAPHIFY_OUT="$PWD/graphify-out" graphify update "$PWD/<code-dir>"
+  Both halves are mandatory — the absolute GRAPHIFY_OUT keeps the write in the root
+  graphify-out/ and the absolute <code-dir> keeps node ids stable (details in the
+  graphify addon's "Refreshing after a code change" section, copied into CODING_RULES.md).
+  Success = exit 0 ("No code-graph topology changes detected" is also success).
+  Then verify, cheap: root graphify-out/graph.json has `directed: true`, the node count
+  did not collapse, and no <code-dir>/graphify-out/graph.json appeared.
+  On failure: report the decisive output line in one line. `refused to shrink` → re-run
+  with `--force` only if this change really deleted source files. Missing or corrupt
+  graphify-out/graph.json → do NOT run the CLI (it would rebuild undirected); run the
+  full skill build `/graphify <code-dir> --directed` in a subagent (see "Self-fallback
+  in a subagent") — never in the main context, the skill loads a large instruction file.
 ```
+
+### Docs-only changes — skip the DRY and convention steps
+
+Skip the `plan DRY + convention check`, `/plan:dry-checked` and the
+post-implementation DRY audit when the plan changes **only** non-code files —
+the same exclusion the changed-files file uses: `.md`, plain-text docs, pure
+prose content, the plan file itself. A phase file that states "prose only — no
+code changes in this phase" is the typical case.
+
+Both checks exist to find code to reuse and code to consolidate. With no code in
+scope they always return "No convention issues found." / "No DRY opportunities
+found." — a delegate call and a 10-minute timeout for a known answer.
+
+Instead say in one line that you are skipping them and why
+(`Docs-only plan — DRY + convention check skipped`), then implement. Still
+restate the Definition of Done; mark its DRY-gate and `/dry:check` boxes
+`n/a — docs only`. `/verify:after-change` still runs.
+
+Mixed code + docs, or unsure: run the checks. Not running them is the exception
+and needs the file list to prove it.
 
 ### DRY gate (precondition for implementing)
 
@@ -631,6 +654,10 @@ moment you start implementing — if you cannot, the gate is not cleared:
 The gate survives the `implement` step: if mid-implementation you add a new
 helper, type, or pattern the gate would have caught, stop and re-clear it
 before continuing.
+
+Docs-only plans clear the gate by exemption (see above) — but the survival rule
+still applies in reverse: the moment a docs-only implementation touches a source
+file, the exemption is void. Stop, run the check, then continue.
 
 ### Definition of Done — restate aloud before implementing
 
@@ -817,10 +844,13 @@ place, so an option can never be shown without a handler:
 ```py
 options: list[str] = []
 actions: list[MenuAction] = []
-options.append("Commit"); actions.append(MenuAction.COMMIT)
+options.append("Commit")
+actions.append(MenuAction.COMMIT)
 if repo.has_untracked:
-    options.append("Add all"); actions.append(MenuAction.ADD_ALL)
-options.append("Cancel"); actions.append(MenuAction.CANCEL)
+    options.append("Add all")
+    actions.append(MenuAction.ADD_ALL)
+options.append("Cancel")
+actions.append(MenuAction.CANCEL)
 
 action = actions[show_menu(options, title)]
 ```
@@ -928,6 +958,7 @@ from pathlib import Path
 # Adjust import to the real package name of your library
 # from python_localization import Localization
 
+
 class Container:
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
@@ -986,6 +1017,7 @@ Where you configure Jinja2:
 # app/web/templates.py
 from jinja2 import Environment, FileSystemLoader
 from app.i18n.keys import TK
+
 
 def create_env(localization, templates_dir: str) -> Environment:
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=True)
@@ -1099,6 +1131,7 @@ Usage in controllers:
 
 ```py
 from app.i18n.keys import TK
+
 self.add_flash("success", self.t(TK.FLASH_SUCCESS_SAVED))
 ```
 
@@ -1322,6 +1355,7 @@ No “magic values” in code. Use a single settings module with env overrides.
 from dataclasses import dataclass
 import os
 
+
 @dataclass(frozen=True)
 class Settings:
     env: str = os.getenv("APP_ENV", "dev")
@@ -1364,7 +1398,7 @@ If a database is needed, use SQLAlchemy ORM (not raw SQL or ad-hoc drivers).
 # BAD - No interface validation
 mock = MagicMock()
 mock.nonexistent_attribute = "test"  # Silently works
-mock.typo_method()                   # Also works - won't catch bugs!
+mock.typo_method()  # Also works - won't catch bugs!
 ```
 
 **Always use `spec=ClassName`** to validate against the real interface:
@@ -1387,6 +1421,7 @@ If the real class has a **method**, mock it as a method:
 class EmailMessage:
     def get_body(self) -> str:
         return "content"
+
 
 # WRONG - Creates fake attribute that doesn't exist
 mock = MagicMock()
@@ -1413,6 +1448,7 @@ mock_obj.method_name.side_effect = ValueError("error")
 
 # Mock property (use PropertyMock)
 from unittest.mock import PropertyMock
+
 type(mock_obj).prop_name = PropertyMock(return_value="value")
 
 # Patch with spec
@@ -1504,7 +1540,7 @@ Prefer the Protocol approach for simple cases. Use dataclass metadata when you n
 per-field control without writing boilerplate methods.
 
 # Version
-11
+12
 
 Increase this version number whenever this rule file changes.
 
@@ -1514,7 +1550,7 @@ Increase this version number whenever this rule file changes.
 graphify turns a code folder into a queryable knowledge graph — god nodes, communities,
 cross-file relationships, fan-in/fan-out. Use it to orient before grep and to spot god classes.
 
-**This project's `<code-dir>` is `src/`.** Every build is
+**This project's `<code-dir>` is `src/`.** The first/full build is
 `/graphify src/ --directed` from the repo root, writing to the root `graphify-out/`.
 Never build the repo root: a code-dir-scoped build is AST-only (free, no LLM), while a
 root build sweeps in `docs/`, `README.md` and other non-code files and forces the paid
@@ -1536,8 +1572,11 @@ LLM pass. There is no in-tree vendored code under `src/`, so no `.graphifyignore
 
 - `graphify-out/` at the **project root** = the **live graph** (`graph.json`, `GRAPH_REPORT.md`,
   `graph.html`). The only one queries read. Keep it `directed=True`.
-- `src/graphify-out/` = **AST cache only** (`cache/`). Scratch that speeds re-extraction.
-  Never the live graph. Do not query it.
+- `graphify-out/cache/` at the project root = AST cache written by the CLI refresh (it runs
+  with `GRAPHIFY_OUT` pointing at the root folder, see "Refreshing"). Scratch only.
+- `src/graphify-out/` = legacy AST cache from the skill build. Never the live graph under the
+  documented flow; safe to delete. If a `graph.json` ever appears in there, a bare
+  `graphify update` ran without `GRAPHIFY_OUT` — delete that `graph.json`, keep `cache/`.
 
 ## Delegated checks (Codex / DeepSeek)
 
@@ -1561,35 +1600,50 @@ back to reading files.
 
 ## Refreshing after a code change
 
-- After a feature or any code change, rebuild via the **directed skill flow**: re-run
-  `/graphify src/ --directed` from the repo root, writing to the project-root `graphify-out/`.
-- Do NOT use the bare `graphify update src` CLI — it has no `--directed` flag and writes a
-  full UNDIRECTED graph into `src/graphify-out/` (wrong location), desyncing the live graph.
-  If that stray graph appears, delete `src/graphify-out/graph.json` (keep `cache/`).
-- **Rebuild at the scope the existing graph already has**, not narrower. Check it first: group
-  `graphify-out/graph.json` nodes by the first path segment of their `source_file`. A graph
-  built from a wider scope holds `docs/` and root `*.md` nodes — the ones that answer "how does
-  X work" rather than "where is X defined" — and a narrower rebuild deletes every one of them.
-  graphify's shrink guard catches that and refuses the write: re-run at the original scope,
-  never force past it.
-- **Confirm `.graphify_root` after every rebuild.** The scan root lives in
-  `graphify-out/.graphify_root`, and EVERY `/graphify <path>` run overwrites it. One wrong-path
-  invocation leaves it pointing at a subtree the graph was not built from, and a later bare
-  `graphify update` rescans only that subtree and reads every file outside it as deleted. It
-  cannot be committed (absolute path, and `graphify-out/` is gitignored) — the intended scan
-  root is recorded in `CLAUDE.md`.
-- Verify after rebuild: `graph.json` has `directed: true` and lives in root `graphify-out/`.
+- After a feature or any code change, refresh the live graph with the **CLI update**, run
+  from the repo root. One command, no LLM, no API key, seconds:
+  ```
+  GRAPHIFY_OUT="$PWD/graphify-out" graphify update "$PWD/src"
+  ```
+  PowerShell: `$env:GRAPHIFY_OUT="$PWD\graphify-out"; graphify update "$PWD\src"`.
+  It re-extracts code files (AST, cached), re-clusters, keeps the existing community labels
+  (signature-validated; a changed community is hub-named), preserves the semantic (doc)
+  nodes of the last full build, and inherits `directed: true` from the existing graph
+  (graphify ≥ 0.9.x, #2342). Prints `No code-graph topology changes detected` when the
+  change was a no-op for the graph.
+- **Both halves of the command are mandatory.** `graphify update` writes to
+  `<path>/graphify-out/`, so without the absolute `GRAPHIFY_OUT` it creates a second,
+  stray graph under `src/graphify-out/` and the live root graph goes stale. And the
+  `src` path must be **absolute**: with a relative path node ids and `source_file`
+  get re-anchored to the repo root, every node is replaced and all labels are lost.
+- **Never delete the root `graph.json` before a CLI update.** With no existing graph
+  the CLI builds an **undirected** one (nothing to inherit) and the doc nodes are gone.
+  Missing or corrupt `graph.json` → full skill rebuild (`/graphify src/ --directed`,
+  in a subagent — the skill loads a large instruction file).
+- **Rebuild at the scope the existing graph already has**, never narrower. Check
+  `graphify-out/.graphify_root`; it stays the absolute `src` path after a CLI update
+  (the CLI writes the path exactly as passed). The intended scan root is recorded in
+  `CLAUDE.md` — `.graphify_root` holds an absolute path and `graphify-out/` is
+  gitignored, so it cannot carry the scope across clones.
+- **Shrink guard.** A deleted source file is evicted normally. If the CLI still refuses
+  with `refused to shrink`, the change really removed code — re-run with `--force`. Never
+  force to paper over a wrong path or a wrong `GRAPHIFY_OUT`.
+- **Doc changes** (`docs/`, `*.md`) are not re-extracted by the CLI (code only). Run the
+  skill's incremental flow `/graphify src/ --directed --update` occasionally for those;
+  it costs LLM work. **Keep `docs/` in** the graph — it is the prose that answers
+  "how does X work"; excluding it via `.graphifyignore` leaves a graph a grep would match.
+- Verify after refresh (cheap, no skill load): root `graph.json` has `directed: true`,
+  the node count did not collapse, and no `src/graphify-out/graph.json` appeared.
 
-## Manual test bat (`tools/graphify_update.bat`)
+## Manual refresh bat (`tools/graphify_update.bat`)
 
-A no-AI convenience for manually checking graphify works (`CODE_DIR=src`).
+Copied from the `graphify_update.bat` template beside this addon, adjusted (`CODE_DIR=src`).
 Run it from anywhere — it `pushd`es to the repo root itself.
 
-- **Does:** (1) code-only AST refresh (`graphify update`, no LLM/API cost);
-  (2) smoke-tests the live root graph — `god-nodes` + a sample `query`. Proves the interpreter
-  resolves, the graph is present and directed, and queries answer.
-- **Does NOT:** rebuild the live root `graphify-out/graph.json`. `graphify update` writes only
-  the AST cache under `src/graphify-out/`. The authoritative **directed** rebuild is the agent
-  skill flow (`/graphify src/ --directed`) — a `.bat` cannot run it.
-- **When to use:** quick "is graphify still wired up?" check after cloning, a dependency change,
-  or a graphify upgrade. For an actual refresh of the graph the queries read, use the skill flow.
+- **Does:** (1) the live-graph CLI refresh above (sets `GRAPHIFY_OUT` to the root
+  `graphify-out\`, passes the absolute code dir); (2) smoke test — prints the root
+  graph's `directed` flag + node count, `god-nodes`, a sample `query`.
+- **Does NOT:** re-extract docs (see "Doc changes") or build a first graph — that is the
+  skill flow (`/graphify src/ --directed`).
+- **When to use:** after a code change outside an AI session, or as a "is graphify still
+  wired up?" check after cloning, a dependency change, or a graphify upgrade.

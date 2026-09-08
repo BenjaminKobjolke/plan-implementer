@@ -58,6 +58,7 @@ console output goes through `app_logger.AppLogger`.
 
 ## Knowledge graph (graphify)
 
-The graphify scan root for this project is `src/`. Rebuild with
-`/graphify src/ --directed` from the repo root; the live graph is the root `graphify-out/`.
+The graphify scan root for this project is `src/`. Refresh after a code change with
+`GRAPHIFY_OUT="$PWD/graphify-out" graphify update "$PWD/src"` from the repo root (no LLM);
+a first/full build is `/graphify src/ --directed`. The live graph is the root `graphify-out/`.
 See `CODING_RULES.md` for the full rules.
