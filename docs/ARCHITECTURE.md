@@ -98,6 +98,11 @@ between phases except what the phase files and the repository itself say. That i
 A failed commit is reported as a phase failure, but the message says plainly that the code *is*
 implemented and the phase file *was* moved — only the commit is missing.
 
+A commit backend that fails *after* git already committed is not taken at its word: when HEAD moved
+and the phase left nothing uncommitted, the commit counts as successful. "Nothing uncommitted" is
+measured against a `dirty_paths` baseline captured before the phase's session started, so a file
+that was already dirty beforehand — an earlier phase, another session — cannot fail this phase.
+
 ## Modules
 
 | Module | Responsibility |

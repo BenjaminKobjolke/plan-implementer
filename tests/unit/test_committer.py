@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRunner
-from plan_implementer.committer import Committer
+from plan_implementer.committer import Committer, dirty_paths
 from plan_implementer.constants import COMMIT_SESSION_LABEL
 from plan_implementer.models import ClaudeResult
 
@@ -86,3 +86,33 @@ def test_shell_failure_stands_when_nothing_was_committed(tmp_path: Path) -> None
     )
 
     assert committer.commit(tmp_path) is False
+
+
+def test_dirt_that_predates_the_phase_does_not_fail_the_commit(tmp_path: Path) -> None:
+    make_repo(tmp_path)
+    (tmp_path / "unrelated.txt").write_text("dirty before the phase", encoding="utf-8")
+    dirty_before = dirty_paths(tmp_path)
+    (tmp_path / "feature.txt").write_text("work", encoding="utf-8")
+
+    committer = Committer(
+        'git add feature.txt && git commit -qm "phase" && python -c "raise SystemExit(3)"',
+        make_runner(),
+        AppLogger(enabled=False),
+    )
+
+    assert committer.commit(tmp_path, dirty_before) is True
+
+
+def test_dirt_the_phase_created_still_fails_the_commit(tmp_path: Path) -> None:
+    make_repo(tmp_path)
+    dirty_before = dirty_paths(tmp_path)
+    (tmp_path / "feature.txt").write_text("work", encoding="utf-8")
+    (tmp_path / "forgotten.txt").write_text("never staged", encoding="utf-8")
+
+    committer = Committer(
+        'git add feature.txt && git commit -qm "phase" && python -c "raise SystemExit(3)"',
+        make_runner(),
+        AppLogger(enabled=False),
+    )
+
+    assert committer.commit(tmp_path, dirty_before) is False

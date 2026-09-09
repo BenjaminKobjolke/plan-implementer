@@ -8,7 +8,7 @@ from datetime import datetime
 from plan_implementer import plan_folder, prompt_builder
 from plan_implementer.app_logger import AppLogger
 from plan_implementer.claude_runner import ClaudeRun
-from plan_implementer.committer import Committer
+from plan_implementer.committer import Committer, dirty_paths
 from plan_implementer.models import Phase, PhaseResult, PlanFolder, ProjectType, RunSummary
 
 _SEPARATOR = "=" * 70
@@ -95,6 +95,8 @@ class PhaseRunner:
         prompt = prompt_builder.build_phase_prompt(
             self._context.folder, phase, self._context.project_type
         )
+        # The baseline has to predate the session, or the phase's own work looks pre-existing.
+        dirty_before = dirty_paths(self._context.folder.repo_root)
         started = time.monotonic()
         result = self._claude.run(prompt, self._context.folder.repo_root, label=phase.name)
         elapsed = time.monotonic() - started
@@ -116,7 +118,7 @@ class PhaseRunner:
         moved_to = plan_folder.relative_to_repo(destination, self._context.folder.repo_root)
         self._logger.info(f"Done: {phase.name} -> {moved_to}")
 
-        if not self._committer.commit(self._context.folder.repo_root):
+        if not self._committer.commit(self._context.folder.repo_root, dirty_before):
             self._logger.error(
                 f"Commit failed for {phase.name}. The phase IS implemented and was moved to "
                 f"{moved_to}, but the changes are NOT committed."
