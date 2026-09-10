@@ -81,6 +81,8 @@ cli.main
       for each phase:
         prompt_builder.build_phase_prompt
         ClaudeRunner.run          one fresh `claude -p` process, cwd = repo root
+                                  stopped when it goes silent (idle_timeout_seconds) or loops
+                                  on the same output (max_repeated_lines) — both count as failed
         failed  -> report, do NOT move, do NOT commit, stop (unless --continue-on-failure)
         ok      -> plan_folder.mark_done
                    Committer.commit
@@ -112,7 +114,8 @@ that was already dirty beforehand — an earlier phase, another session — cann
 | `plan_folder.py` | Resolve the folder (or every plan subfolder of a `plan/` parent) and its repo root, order phases, claim/release the folder's state directory, `done/` moves, archive, repo-relative path rendering |
 | `project_detect.py` | Validate `config/project_types.json`, match markers, resolve verify commands |
 | `prompt_builder.py` | Render the per-phase prompt |
-| `claude_runner.py` | `ClaudeRunner` (process) and `ClaudeStream` (stream-json parsing) |
+| `claude_runner.py` | `ClaudeRunner` — the process, its reader thread, the two stall limits and the shutdown path |
+| `claude_stream.py` | `ClaudeStream` — stream-json parsing, console rendering, repeat suppression |
 | `tool_summary.py` | One readable console line per tool call |
 | `run_report.py` | Append the run to `REPORT.md`; write `ERROR.md` when a phase failed |
 | `committer.py` | Dispatch the commit spec to Claude or to the shell |
@@ -137,6 +140,9 @@ interactive parts removed. It tells Claude to:
 - follow the phase steps in order, obeying `CLAUDE.md` / `CODING_RULES.md`, no unrelated changes;
 - run the phase's own `## Verify` checks, then the detected stack's checks, and fix until green;
 - **not** move, rename or delete the phase file, and **not** commit — this tool does both;
+- run every check in the **foreground**, never `run_in_background` and never polling a task
+  output file: a headless `claude -p` run gets no completion notification for a background task,
+  so the poll loop never ends — the failure this tool's stall limits exist to catch;
 - stop and report if an unresolved Open Question in `00-context.md` blocks the phase, since a
   headless run cannot ask.
 
@@ -151,6 +157,12 @@ read `CLAUDE.md` and choose the checks itself.
 verbatim, one `-> Tool: <argument>` line per tool call, one `[done]`/`[FAILED]` line per tool
 result — plus the final `ClaudeResult` (success, message, duration, cost). Non-JSON lines
 (startup banners, crashes) are printed as `[Claude] …` rather than swallowed.
+
+A tool line already among the last `REPEAT_WINDOW_LINES` printed is counted instead of printed,
+and the count is reported as `... N repeated lines hidden` when something new comes along.
+Consecutive-line de-duplication would not do: a Claude polling two files alternates between four
+lines, so no two adjacent lines are ever equal. Model text is never suppressed, and a pending
+count is flushed before it so the two never interleave.
 
 A non-zero exit code from `claude` is a failure even when a `result` event said otherwise, and a
 run that produced no `result` event at all is a failure too.
@@ -179,7 +191,8 @@ report is reached.
   events, prompt content, settings resolution, slash command installation (with an injected downloader,
   so no test touches the network).
 - `tests/integration/` — a full run against a fake `claude` batch stub emitting canned
-  `stream-json`: phases land in `plan/done/<folder-name>/`, the commit spec runs once per phase,
+  `stream-json`: a stub that emits one event and then hangs is stopped by the idle timeout;
+  phases land in `plan/done/<folder-name>/`, the commit spec runs once per phase,
   the folder is archived, `REPORT.md` lands next to them; a run pointed at the `plan/` parent does
   that for every plan subfolder, each with its own report; a failing run moves and commits nothing
   but still leaves `ERROR.md` and a report; `--dry-run` changes nothing.

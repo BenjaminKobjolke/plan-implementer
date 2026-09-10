@@ -127,7 +127,9 @@ successful run clears it.
 ```json
 {
   "commit": "/git:commit",
-  "permission_mode": "bypassPermissions"
+  "permission_mode": "bypassPermissions",
+  "idle_timeout_seconds": 1800,
+  "max_repeated_lines": 300
 }
 ```
 
@@ -136,6 +138,11 @@ successful run clears it.
 | `commit` | Empty = never commit. Starting with `/` = run it as a Claude prompt in the target repo. Anything else = run it as a shell command in the target repo. |
 | `permission_mode` | Passed to `claude --permission-mode`. Default `bypassPermissions`. |
 | `project_types_config` | Path to an alternative project-type table. Default `config/project_types.json`. |
+| `idle_timeout_seconds` | Stop a phase whose Claude process has produced no output for this long. Default `1800` (30 min), comfortably above a slow foreground test suite. `0` disables it. |
+| `max_repeated_lines` | Stop a phase after this many suppressed repeats of the same console line — a Claude stuck polling instead of working. Default `300`. `0` disables it. |
+
+Either limit stops the phase, leaves its phase file in place, skips the commit, and parks the
+folder in `plan/errors/` like any other failed phase.
 
 A custom commit command, for example:
 
@@ -146,7 +153,8 @@ A custom commit command, for example:
 ```
 
 Every setting has an environment override: `PLAN_IMPLEMENTER_SETTINGS`,
-`PLAN_IMPLEMENTER_COMMIT`, `PLAN_IMPLEMENTER_PERMISSION_MODE`, `PLAN_IMPLEMENTER_PROJECT_TYPES`
+`PLAN_IMPLEMENTER_COMMIT`, `PLAN_IMPLEMENTER_PERMISSION_MODE`, `PLAN_IMPLEMENTER_PROJECT_TYPES`,
+`PLAN_IMPLEMENTER_IDLE_TIMEOUT`, `PLAN_IMPLEMENTER_MAX_REPEATED_LINES`
 and `PLAN_IMPLEMENTER_CLAUDE` (full path to the `claude` executable).
 
 ## Project types

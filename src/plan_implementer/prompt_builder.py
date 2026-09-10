@@ -37,6 +37,11 @@ IMPORTANT:
 Do NOT move, rename or delete the phase file {phase} — the calling script moves it once you
 have successfully finished. Do NOT commit; the calling script handles committing.
 
+Run every command and every check in the FOREGROUND, blocking, with an explicit timeout.
+NEVER use `run_in_background: true`, and never poll a task output file in a loop. This is a
+headless `claude -p` run: a background task delivers no completion notification, so a poll
+loop never ends. A slow suite is fine — block on it, even for many minutes.
+
 When finished, briefly summarize:
 - what you implemented
 - which files you changed

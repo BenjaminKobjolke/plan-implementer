@@ -2,20 +2,29 @@
 
 import json
 import os
+import queue
 import shutil
 import subprocess
+import sys
+import threading
 from pathlib import Path
-from typing import Protocol
+from typing import IO, Protocol
 
 from plan_implementer.app_logger import AppLogger
+from plan_implementer.claude_stream import ClaudeStream
 from plan_implementer.constants import (
     CLAUDE_EXECUTABLE_NAME,
     DEFAULT_SESSION_LABEL,
     ENV_CLAUDE_EXECUTABLE,
+    SHUTDOWN_GRACE_SECONDS,
 )
 from plan_implementer.errors import ConfigurationError
-from plan_implementer.models import ClaudeResult, SessionRecord, TokenUsage
-from plan_implementer.tool_summary import summarize_tool
+from plan_implementer.models import (
+    DEFAULT_CLAUDE_LIMITS,
+    ClaudeLimits,
+    ClaudeResult,
+    SessionRecord,
+)
 
 
 class ClaudeRun(Protocol):
@@ -26,112 +35,6 @@ class ClaudeRun(Protocol):
         ...
 
 
-class ClaudeStream:
-    """Parse a `stream-json` event stream into console output and a result."""
-
-    def __init__(self, logger: AppLogger) -> None:
-        self._logger = logger
-        self._tool_name: str | None = None
-        self._tool_json = ""
-        self._tool_input: dict[str, object] = {}
-        self._in_text = False
-        self.tool_names: dict[str, str] = {}
-        self.result = ClaudeResult(success=False)
-
-    def handle(self, event: dict[str, object]) -> None:
-        """Dispatch one top-level stream event."""
-        kind = event.get("type")
-
-        if kind == "stream_event":
-            inner = event.get("event")
-            if isinstance(inner, dict):
-                self._handle_stream_event(inner)
-        elif kind == "user":
-            self._handle_tool_results(event)
-        elif kind == "result":
-            self.result = ClaudeResult(
-                success=not bool(event.get("is_error", False)),
-                result_message=_as_optional_str(event.get("result")),
-                duration_ms=_as_optional_int(event.get("duration_ms")),
-                cost_usd=_as_optional_float(event.get("total_cost_usd")),
-                usage=_as_usage(event.get("usage")),
-            )
-
-    def _handle_tool_results(self, event: dict[str, object]) -> None:
-        message = event.get("message")
-        content = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(content, list):
-            return
-
-        for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_result":
-                continue
-            name = self.tool_names.get(str(block.get("tool_use_id")), "Tool")
-            marker = "[FAILED]" if block.get("is_error", False) else "[done]  "
-            self._logger.info(f"  {marker} {name}")
-
-    def _handle_stream_event(self, event: dict[str, object]) -> None:
-        kind = event.get("type")
-
-        if kind == "content_block_start":
-            self._start_block(event.get("content_block"))
-        elif kind == "content_block_delta":
-            self._append_delta(event.get("delta"))
-        elif kind == "content_block_stop":
-            self._stop_block()
-
-    def _start_block(self, block: object) -> None:
-        if not isinstance(block, dict):
-            return
-
-        if block.get("type") == "text":
-            self._in_text = True
-            self._logger.stream("\nClaude: ")
-            return
-
-        if block.get("type") == "tool_use":
-            self._tool_name = str(block.get("name", "Tool"))
-            self._tool_json = ""
-            raw_input = block.get("input")
-            self._tool_input = raw_input if isinstance(raw_input, dict) else {}
-            tool_id = block.get("id")
-            if tool_id:
-                self.tool_names[str(tool_id)] = self._tool_name
-
-    def _append_delta(self, delta: object) -> None:
-        if not isinstance(delta, dict):
-            return
-
-        if delta.get("type") == "text_delta":
-            self._logger.stream(str(delta.get("text", "")))
-        elif delta.get("type") == "input_json_delta":
-            self._tool_json += str(delta.get("partial_json", ""))
-
-    def _stop_block(self) -> None:
-        if self._in_text:
-            self._logger.stream("\n")
-            self._in_text = False
-            return
-
-        if not self._tool_name:
-            return
-
-        arguments: object = self._tool_input
-        if self._tool_json:
-            try:
-                arguments = json.loads(self._tool_json)
-            except json.JSONDecodeError:
-                arguments = {"arguments": self._tool_json}
-
-        summary = summarize_tool(self._tool_name, arguments)
-        suffix = f": {summary}" if summary else ""
-        self._logger.info(f"  -> {self._tool_name}{suffix}")
-
-        self._tool_name = None
-        self._tool_json = ""
-        self._tool_input = {}
-
-
 class ClaudeRunner:
     """Start one fresh Claude Code process per call — no session is ever reused."""
 
@@ -139,10 +42,12 @@ class ClaudeRunner:
         self,
         logger: AppLogger,
         permission_mode: str,
+        limits: ClaudeLimits = DEFAULT_CLAUDE_LIMITS,
         executable: str | None = None,
     ) -> None:
         self._logger = logger
         self._permission_mode = permission_mode
+        self._limits = limits
         self._executable = executable or find_claude()
         self.sessions: list[SessionRecord] = []
 
@@ -160,7 +65,7 @@ class ClaudeRunner:
             "--verbose",
             "--include-partial-messages",
         ]
-        stream = ClaudeStream(self._logger)
+        stream = ClaudeStream(self._logger, self._limits)
 
         process = subprocess.Popen(
             command,
@@ -174,17 +79,19 @@ class ClaudeRunner:
             bufsize=1,
         )
         try:
-            for line in process.stdout or ():
-                self._consume(stream, line.strip())
+            stalled = self._pump(process, stream)
+            if stalled:
+                return self._record(label, ClaudeResult(success=False, result_message=stalled))
             return_code = process.wait()
         except KeyboardInterrupt:
             # Not recorded: `cli.main` returns on the interrupt before any report is written.
             self._logger.warning("\n\nInterrupted. Stopping Claude...")
-            process.terminate()
+            self._shutdown(process)
             raise
         finally:
-            if process.stdout is not None:
-                process.stdout.close()
+            # The pipe belongs to the reader thread, which closes it at EOF. Closing it here
+            # would deadlock against a reader still blocked inside `readline`.
+            stream.flush()
 
         if return_code != 0:
             return self._record(
@@ -200,6 +107,62 @@ class ClaudeRunner:
                 ),
             )
         return self._record(label, stream.result)
+
+    def _pump(self, process: subprocess.Popen[str], stream: ClaudeStream) -> str | None:
+        """Feed the child's output to `stream`; return why it was stopped, or `None` at EOF.
+
+        A blocking `for line in process.stdout` can never time out, so a reader thread owns the
+        pipe and this loop waits on a queue instead.
+        """
+        lines: queue.Queue[str | None] = queue.Queue()
+        reader = threading.Thread(
+            target=_pump_lines, args=(process.stdout, lines), daemon=True, name="claude-stdout"
+        )
+        reader.start()
+
+        while True:
+            try:
+                line = lines.get(timeout=self._limits.idle_timeout)
+            except queue.Empty:
+                minutes = self._limits.idle_timeout_seconds / 60
+                reason = f"no output from claude for {minutes:.0f} minutes - stopped"
+                self._logger.error(f"\n\n{reason}")
+                self._shutdown(process)
+                return reason
+
+            if line is None:
+                return None
+
+            self._consume(stream, line.strip())
+            if stream.stalled:
+                reason = (
+                    f"claude repeated the same output more than "
+                    f"{self._limits.max_repeated_lines} times - stopped"
+                )
+                self._logger.error(f"\n\n{reason}")
+                self._shutdown(process)
+                return reason
+
+    def _shutdown(self, process: subprocess.Popen[str]) -> None:
+        """End the child politely, then bluntly — a terminate alone can leave it running.
+
+        On Windows `claude` resolves to a `.CMD` shim, so the process started here is the shim
+        and the real Claude is its child. Terminating the shim would orphan that child, leave it
+        holding the output pipe, and leave the run it was told to stop still running.
+        """
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            process.terminate()
+
+        try:
+            process.wait(timeout=SHUTDOWN_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
 
     def _record(self, label: str, result: ClaudeResult) -> ClaudeResult:
         """Remember this session for the run report, and hand the result back to the caller."""
@@ -219,6 +182,17 @@ class ClaudeRunner:
             stream.handle(event)
 
 
+def _pump_lines(stdout: IO[str] | None, lines: queue.Queue[str | None]) -> None:
+    """Read the child's stdout to EOF, then post the sentinel that ends the consumer loop."""
+    try:
+        for line in stdout or ():
+            lines.put(line)
+    finally:
+        if stdout is not None:
+            stdout.close()
+        lines.put(None)
+
+
 def find_claude() -> str:
     """Locate the Claude Code CLI, honoring an explicit override."""
     override = os.getenv(ENV_CLAUDE_EXECUTABLE)
@@ -232,30 +206,3 @@ def find_claude() -> str:
             f"{ENV_CLAUDE_EXECUTABLE} to its full path."
         )
     return executable
-
-
-def _as_optional_str(value: object) -> str | None:
-    return None if value is None else str(value)
-
-
-def _as_optional_int(value: object) -> int | None:
-    return int(value) if isinstance(value, int | float) else None
-
-
-def _as_optional_float(value: object) -> float | None:
-    return float(value) if isinstance(value, int | float) else None
-
-
-def _as_usage(value: object) -> TokenUsage:
-    if not isinstance(value, dict):
-        return TokenUsage()
-    return TokenUsage(
-        input_tokens=_as_int(value.get("input_tokens")),
-        output_tokens=_as_int(value.get("output_tokens")),
-        cache_read_tokens=_as_int(value.get("cache_read_input_tokens")),
-        cache_creation_tokens=_as_int(value.get("cache_creation_input_tokens")),
-    )
-
-
-def _as_int(value: object) -> int:
-    return int(value) if isinstance(value, int | float) else 0

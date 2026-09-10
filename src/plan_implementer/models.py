@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from plan_implementer.constants import DEFAULT_IDLE_TIMEOUT_SECONDS, DEFAULT_MAX_REPEATED_LINES
+
 
 @dataclass(frozen=True)
 class Phase:
@@ -80,6 +82,27 @@ class TokenUsage:
             cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
             cache_creation_tokens=self.cache_creation_tokens + other.cache_creation_tokens,
         )
+
+
+@dataclass(frozen=True)
+class ClaudeLimits:
+    """What makes a headless Claude process count as hung. `0` disables either limit."""
+
+    idle_timeout_seconds: int = DEFAULT_IDLE_TIMEOUT_SECONDS
+    max_repeated_lines: int = DEFAULT_MAX_REPEATED_LINES
+
+    @property
+    def idle_timeout(self) -> float | None:
+        """The wait a reader may block for, or `None` when the timeout is disabled."""
+        return self.idle_timeout_seconds or None
+
+    def repeats_exhausted(self, hidden: int) -> bool:
+        """Whether this many suppressed repeats mean Claude is looping rather than working."""
+        return bool(self.max_repeated_lines) and hidden > self.max_repeated_lines
+
+
+# A frozen singleton, so callers that do not care about the limits need not build one.
+DEFAULT_CLAUDE_LIMITS = ClaudeLimits()
 
 
 @dataclass(frozen=True)

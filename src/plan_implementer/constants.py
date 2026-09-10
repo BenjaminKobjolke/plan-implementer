@@ -14,6 +14,8 @@ ENV_PROJECT_TYPES: Final[str] = "PLAN_IMPLEMENTER_PROJECT_TYPES"
 ENV_COMMIT: Final[str] = "PLAN_IMPLEMENTER_COMMIT"
 ENV_PERMISSION_MODE: Final[str] = "PLAN_IMPLEMENTER_PERMISSION_MODE"
 ENV_CLAUDE_EXECUTABLE: Final[str] = "PLAN_IMPLEMENTER_CLAUDE"
+ENV_IDLE_TIMEOUT: Final[str] = "PLAN_IMPLEMENTER_IDLE_TIMEOUT"
+ENV_MAX_REPEATED_LINES: Final[str] = "PLAN_IMPLEMENTER_MAX_REPEATED_LINES"
 
 # The slash commands this tool assumes exist in the target repository. They are maintained in
 # a separate repository, so `install-skills.bat` downloads them instead of vendoring copies.
@@ -67,3 +69,14 @@ TOOL_BAT_ROLES: Final[dict[str, str]] = {
 }
 
 MAX_DISPLAY_LENGTH: Final[int] = 180
+
+# How long a phase may go without producing a single stream event before it counts as hung. A
+# foreground test suite can legitimately run for many minutes, so this sits well above that.
+DEFAULT_IDLE_TIMEOUT_SECONDS: Final[int] = 1800
+# How many suppressed repeats mean Claude is looping rather than working. A headless run gets no
+# completion notification for a background task, so polling one is an endless read loop.
+DEFAULT_MAX_REPEATED_LINES: Final[int] = 300
+# The console only hides a tool line that is still inside this window of recently printed lines.
+REPEAT_WINDOW_LINES: Final[int] = 8
+# Grace given to a terminated child before it is killed outright.
+SHUTDOWN_GRACE_SECONDS: Final[int] = 5

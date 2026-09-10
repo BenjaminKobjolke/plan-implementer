@@ -8,10 +8,14 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from plan_implementer.constants import (
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_MAX_REPEATED_LINES,
     DEFAULT_PERMISSION_MODE,
     DEFAULT_PROJECT_TYPES_CONFIG,
     DEFAULT_SETTINGS_FILE,
     ENV_COMMIT,
+    ENV_IDLE_TIMEOUT,
+    ENV_MAX_REPEATED_LINES,
     ENV_PERMISSION_MODE,
     ENV_PROJECT_TYPES,
     ENV_SETTINGS,
@@ -27,6 +31,8 @@ class SettingsFile(BaseModel):
     commit: str = ""
     permission_mode: str = DEFAULT_PERMISSION_MODE
     project_types_config: str | None = None
+    idle_timeout_seconds: int = DEFAULT_IDLE_TIMEOUT_SECONDS
+    max_repeated_lines: int = DEFAULT_MAX_REPEATED_LINES
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,8 @@ class Settings:
     commit: str
     permission_mode: str
     project_types_config: Path
+    idle_timeout_seconds: int
+    max_repeated_lines: int
 
     @classmethod
     def load(cls, settings_path: Path | None = None) -> Settings:
@@ -50,7 +58,25 @@ class Settings:
             commit=os.getenv(ENV_COMMIT, file_settings.commit),
             permission_mode=os.getenv(ENV_PERMISSION_MODE, file_settings.permission_mode),
             project_types_config=Path(os.getenv(ENV_PROJECT_TYPES, str(types_default))),
+            idle_timeout_seconds=_int_override(
+                ENV_IDLE_TIMEOUT, file_settings.idle_timeout_seconds
+            ),
+            max_repeated_lines=_int_override(
+                ENV_MAX_REPEATED_LINES, file_settings.max_repeated_lines
+            ),
         )
+
+
+def _int_override(name: str, fallback: int) -> int:
+    """Read an integer environment override, reporting a bad value like a bad settings file."""
+    raw = os.getenv(name)
+    if raw is None:
+        return fallback
+
+    try:
+        return int(raw)
+    except ValueError as error:
+        raise ConfigurationError(f"{name} must be a whole number, got {raw!r}") from error
 
 
 def _read(path: Path) -> SettingsFile:

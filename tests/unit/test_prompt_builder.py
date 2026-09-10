@@ -42,6 +42,13 @@ def test_prompt_forbids_moving_the_phase_file_and_committing(plan_repo: Path) ->
     assert "Do NOT commit" in prompt
 
 
+def test_prompt_forbids_backgrounded_checks(plan_repo: Path) -> None:
+    prompt = build(plan_repo)
+
+    assert "NEVER use `run_in_background: true`" in prompt
+    assert "never poll a task output file in a loop" in prompt
+
+
 def test_prompt_without_commands_tells_claude_to_pick_them(plan_repo: Path) -> None:
     prompt = build(plan_repo, ProjectType(name="unknown", verify=()))
 

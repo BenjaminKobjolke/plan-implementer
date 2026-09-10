@@ -10,7 +10,7 @@ from plan_implementer.claude_runner import ClaudeRunner
 from plan_implementer.committer import Committer
 from plan_implementer.constants import ERRORS_DIR_NAME, IMPLEMENTING_DIR_NAME
 from plan_implementer.errors import ConfigurationError, PlanImplementerError
-from plan_implementer.models import Phase, PlanFolder, ProjectType
+from plan_implementer.models import ClaudeLimits, Phase, PlanFolder, ProjectType
 from plan_implementer.runner import PhaseRunner, RunContext
 from plan_implementer.settings import Settings
 
@@ -113,7 +113,14 @@ def _implement(
     """Implement one plan folder; `True` when every phase succeeded."""
     # A fresh runner per folder: `sessions` is cumulative, and each folder's REPORT.md must list
     # only its own sessions.
-    claude = ClaudeRunner(logger, settings.permission_mode)
+    claude = ClaudeRunner(
+        logger,
+        settings.permission_mode,
+        ClaudeLimits(
+            idle_timeout_seconds=settings.idle_timeout_seconds,
+            max_repeated_lines=settings.max_repeated_lines,
+        ),
+    )
     runner = PhaseRunner(
         RunContext(
             folder=folder,

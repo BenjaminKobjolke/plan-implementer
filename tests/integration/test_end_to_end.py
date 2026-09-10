@@ -3,12 +3,13 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from plan_implementer import cli
-from plan_implementer.constants import ENV_CLAUDE_EXECUTABLE, ENV_COMMIT
+from plan_implementer.constants import ENV_CLAUDE_EXECUTABLE, ENV_COMMIT, ENV_IDLE_TIMEOUT
 from tests.conftest import make_plan_repo
 
 # The fake `claude` is a batch stub, so nothing in this module can run off Windows.
@@ -120,6 +121,34 @@ def test_failing_claude_stops_before_moving_or_committing(
     assert not (repo / "plan" / "implementing").exists()
     report = (repo / "plan" / "done" / "demo" / "REPORT.md").read_text(encoding="utf-8")
     assert "| Phases | 0 completed, 1 failed of 2 |" in report
+
+
+def test_a_silent_claude_is_stopped_by_the_idle_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    plan = make_plan_repo(repo, phase_count=1)
+    # Emits one event, then hangs — a child that never speaks again and never exits.
+    body = (
+        "import json,sys,time\n"
+        f"print(json.dumps({json.dumps({'type': 'stream_event', 'event': {}})}), flush=True)\n"
+        "time.sleep(600)\n"
+    )
+    monkeypatch.setenv(ENV_CLAUDE_EXECUTABLE, str(_stub_launcher(tmp_path, "silent_claude", body)))
+    monkeypatch.setenv(ENV_COMMIT, "")
+    monkeypatch.setenv(ENV_IDLE_TIMEOUT, "5")
+
+    started = time.monotonic()
+    exit_code = run_cli(str(plan))
+    elapsed = time.monotonic() - started
+
+    parked = repo / "plan" / "errors" / "demo"
+
+    assert exit_code == 1
+    assert elapsed < 60
+    assert (parked / "01-step-1.md").exists()
+    assert "no output from claude" in (parked / "ERROR.md").read_text(encoding="utf-8")
+    assert not (repo / "plan" / "done" / "demo" / "01-step-1.md").exists()
 
 
 def test_console_script_is_installed() -> None:

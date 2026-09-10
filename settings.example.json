@@ -1,4 +1,6 @@
 {
   "commit": "/git:commit",
-  "permission_mode": "bypassPermissions"
+  "permission_mode": "bypassPermissions",
+  "idle_timeout_seconds": 1800,
+  "max_repeated_lines": 300
 }
